@@ -753,7 +753,10 @@ struct KeyMapperSheet: View {
                 Spacer()
                 Button("Clear") {
                     deviceManager.clearKeyMapping(sourceHID: key.hidCode)
-                    applyFeedback = "Mapping cleared"
+                    // Reset UI to defaults
+                    useCtrl = false; useOpt = false; useShift = false; useCmd = false
+                    selectedKey = "1"; wantDisable = false
+                    applyFeedback = "Mapping cleared — key restored to default"
                 }.buttonStyle(.razerSecondary)
 
                 Button("Apply") { applyMapping() }

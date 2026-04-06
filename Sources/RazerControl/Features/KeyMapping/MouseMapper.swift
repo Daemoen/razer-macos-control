@@ -105,9 +105,14 @@ final class MouseMapper: ObservableObject {
         // Get button number: 0=left, 1=right, 2=middle, 3=button4(back), 4=button5(forward)
         let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
 
+        NSLog("[MouseMapper] Event type=%d btn=%d mappings=%@", type.rawValue, buttonNumber,
+              mapper.mappings.keys.map { String($0) }.joined(separator: ","))
+
         guard let action = mapper.mappings[buttonNumber] else {
             return Unmanaged.passRetained(event) // no mapping, pass through
         }
+
+        NSLog("[MouseMapper] Matched btn=%d → action", buttonNumber)
 
         let isDown = (type == .otherMouseDown)
 
