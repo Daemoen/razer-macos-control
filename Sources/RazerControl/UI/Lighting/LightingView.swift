@@ -34,6 +34,22 @@ struct LightingView: View {
                     }
                     Spacer()
 
+                    if let status = applyStatus {
+                        Text(status)
+                            .font(RazerFont.caption(11))
+                            .foregroundColor(status == "Applied!" ? .razerSuccess : .razerWarning)
+                    }
+
+                    // Reset button (fixes stuck lights after macro init)
+                    Button {
+                        if let kb = deviceManager.selectedKeyboard {
+                            _ = kb.setStaticColor(r: 0, g: 255, b: 0) // reset to green
+                        }
+                    } label: {
+                        Text("Reset")
+                    }
+                    .buttonStyle(.razerSecondary)
+
                     // Apply button
                     Button {
                         applyEffectToDevice()
@@ -41,7 +57,7 @@ struct LightingView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "paperplane.fill")
                                 .font(.system(size: 11))
-                            Text("Apply to Device")
+                            Text("Apply")
                         }
                     }
                     .buttonStyle(.razerPrimary)

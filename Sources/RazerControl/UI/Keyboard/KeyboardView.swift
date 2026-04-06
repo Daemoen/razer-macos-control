@@ -603,19 +603,16 @@ struct KeyMapperSheet: View {
     let key: KeyInfo
     @Binding var isPresented: Bool
     @EnvironmentObject var deviceManager: DeviceManager
-    @State private var selectedAction = 0
     @State private var capturedKeyName: String = ""
     @State private var capturedKeyCode: UInt16 = 0
     @State private var capturedModifiers: NSEvent.ModifierFlags = []
     @State private var isListening = false
-    @State private var eventMonitor: Any? = nil
-    @State private var localMonitor: Any? = nil
     @State private var applyFeedback: String?
-
-    let actions = ["Keystroke", "Shortcut", "Launch App", "Media", "Macro", "Disable"]
+    @State private var wantDisable = false
 
     var body: some View {
         VStack(spacing: 16) {
+            // Header
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Remap Key").font(RazerFont.title(16)).foregroundColor(.razerTextPrimary)
@@ -631,186 +628,141 @@ struct KeyMapperSheet: View {
                     .razerGlow(radius: 5)
             }.padding(.horizontal, 20).padding(.top, 20)
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-                ForEach(actions.indices, id: \.self) { i in
-                    Button { selectedAction = i } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: ["keyboard","command","app.gift","play.circle","repeat","xmark.circle"][i])
-                                .font(.system(size: 16))
-                            Text(actions[i]).font(RazerFont.caption(10))
-                        }
-                        .foregroundColor(selectedAction == i ? .razerGreen : .razerTextSecondary)
-                        .frame(maxWidth: .infinity).frame(height: 50)
-                        .razerCard(isSelected: selectedAction == i, padding: 6)
-                    }.buttonStyle(.plain)
-                }
-            }.padding(.horizontal, 20)
+            // Instructions
+            VStack(alignment: .leading, spacing: 8) {
+                Text("1. Click the capture area below to focus it")
+                    .font(RazerFont.body(12)).foregroundColor(.razerTextSecondary)
+                Text("2. Press the target key or shortcut (e.g. Ctrl+1)")
+                    .font(RazerFont.body(12)).foregroundColor(.razerTextSecondary)
+                Text("3. Click Apply")
+                    .font(RazerFont.body(12)).foregroundColor(.razerTextSecondary)
+            }
+            .padding(.horizontal, 20)
 
-            // Key capture area
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Target key combination:").font(RazerFont.body(12)).foregroundColor(.razerTextSecondary)
-                    Spacer()
-                    Button(isListening ? "Stop" : "Record") {
-                        if isListening { stopListening() } else { startListening() }
-                    }
-                    .font(RazerFont.caption(11))
-                    .foregroundColor(.razerGreen)
-                    .buttonStyle(.plain)
+            // Capture area — uses native NSView keyDown, no permissions needed
+            ZStack {
+                // Hidden NSView that captures keys when focused
+                KeyCaptureField(isActive: isListening) { keyCode, modifiers, name in
+                    capturedKeyCode = keyCode
+                    capturedModifiers = modifiers
+                    capturedKeyName = name
+                    isListening = false
                 }
+                .frame(height: 60)
 
+                // Visual overlay
                 HStack {
-                    if capturedKeyName.isEmpty {
-                        if isListening {
-                            HStack(spacing: 6) {
-                                Circle()
-                                    .fill(Color.razerError)
-                                    .frame(width: 8, height: 8)
-                                Text("Press any key or shortcut...")
-                                    .font(RazerFont.mono(13))
-                                    .foregroundColor(.razerWarning)
-                            }
-                        } else {
-                            Text("Click \"Record\" then press the target key")
-                                .font(RazerFont.mono(12))
-                                .foregroundColor(.razerTextTertiary)
-                        }
+                    if !capturedKeyName.isEmpty {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.razerSuccess)
+                        Text(capturedKeyName)
+                            .font(RazerFont.mono(16))
+                            .foregroundColor(.razerGreen)
+                    } else if isListening {
+                        Circle().fill(Color.razerError).frame(width: 8, height: 8)
+                        Text("Focused! Press any key...")
+                            .font(RazerFont.mono(13))
+                            .foregroundColor(.razerWarning)
                     } else {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.razerSuccess)
-                            Text(capturedKeyName)
-                                .font(RazerFont.mono(14))
-                                .foregroundColor(.razerGreen)
-                        }
+                        Text("Click here to capture a key")
+                            .font(RazerFont.mono(13))
+                            .foregroundColor(.razerTextTertiary)
                     }
                     Spacer()
                 }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.razerBg)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .strokeBorder(
-                                    isListening ? Color.razerWarning.opacity(0.6) : Color.razerGreen.opacity(0.3),
-                                    lineWidth: isListening ? 2 : 1
-                                )
-                        )
-                )
-            }.padding(.horizontal, 20)
+                .padding(.horizontal, 14)
+                .allowsHitTesting(false) // let clicks pass through to NSView
+            }
+            .frame(height: 60)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.razerBg)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(
+                                isListening ? Color.razerWarning.opacity(0.6) :
+                                    !capturedKeyName.isEmpty ? Color.razerGreen.opacity(0.5) :
+                                    Color.razerBorder,
+                                lineWidth: isListening ? 2 : 1
+                            )
+                    )
+            )
+            .contentShape(Rectangle())
+            .onTapGesture {
+                isListening = true
+                wantDisable = false
+            }
+            .padding(.horizontal, 20)
+
+            // Or disable
+            HStack {
+                Toggle("Disable this key (no output)", isOn: $wantDisable)
+                    .font(RazerFont.body(12))
+                    .foregroundColor(.razerTextSecondary)
+                    .toggleStyle(.checkbox)
+                    .onChange(of: wantDisable) { newVal in
+                        if newVal {
+                            capturedKeyName = ""
+                            capturedKeyCode = 0
+                            isListening = false
+                        }
+                    }
+                Spacer()
+            }
+            .padding(.horizontal, 20)
 
             Spacer()
 
             if let feedback = applyFeedback {
                 Text(feedback)
                     .font(RazerFont.caption(11))
-                    .foregroundColor(feedback.contains("Mapped") ? .razerSuccess : .razerWarning)
+                    .foregroundColor(feedback.contains("Mapped") || feedback.contains("Disabled") ? .razerSuccess : .razerWarning)
                     .padding(.horizontal, 20)
             }
 
+            // Buttons
             HStack {
-                Button("Cancel") { stopListening(); isPresented = false }.buttonStyle(.razerSecondary)
+                Button("Cancel") { isPresented = false }.buttonStyle(.razerSecondary)
                 Spacer()
                 Button("Clear") {
                     deviceManager.clearKeyMapping(sourceHID: key.hidCode)
                     capturedKeyName = ""
                     capturedKeyCode = 0
+                    wantDisable = false
                     applyFeedback = "Mapping cleared"
                 }.buttonStyle(.razerSecondary)
 
                 Button("Apply") {
-                    stopListening()
                     applyMapping()
                 }.buttonStyle(.razerPrimary)
-                .disabled(capturedKeyName.isEmpty && selectedAction != 5) // 5 = Disable
+                .disabled(capturedKeyName.isEmpty && !wantDisable)
             }.padding(.horizontal, 20).padding(.bottom, 20)
         }
-        .frame(width: 480, height: 420)
+        .frame(width: 480, height: 440)
         .background(Color.razerSurface)
-        .onDisappear { stopListening() }
     }
 
-    // MARK: - Apply Mapping
+    // MARK: - Apply
 
     private func applyMapping() {
         let action: KeyAction
 
-        if selectedAction == 5 {
-            // Disable
+        if wantDisable {
             action = .disabled
         } else if capturedKeyCode == 0 {
-            applyFeedback = "No key captured — click Record first"
+            applyFeedback = "Click the capture area and press a key first"
             return
         } else {
             action = deviceManager.makeAction(fromCGKeyCode: capturedKeyCode, modifiers: capturedModifiers)
         }
 
         deviceManager.setKeyMapping(sourceHID: key.hidCode, action: action)
-        applyFeedback = "Mapped! \(key.label) → \(capturedKeyName.isEmpty ? "Disabled" : capturedKeyName)"
+        applyFeedback = wantDisable
+            ? "Disabled! \(key.label) will produce no output"
+            : "Mapped! \(key.label) → \(capturedKeyName)"
 
-        // Close after brief feedback
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             isPresented = false
-        }
-    }
-
-    // MARK: - Key Capture via NSEvent
-
-    private func startListening() {
-        isListening = true
-        capturedKeyName = ""
-
-        // Use GLOBAL monitor to capture keys even when another app (e.g. Terminal) has focus.
-        // Requires Accessibility permission (TCC), which the Setup Wizard guides the user to grant.
-        // Global monitor cannot consume events (returns Void), but we just need to read them.
-        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown]) { event in
-            let keyCode = event.keyCode
-
-            // Build display string with modifiers
-            var parts: [String] = []
-            if event.modifierFlags.contains(.command) { parts.append("Cmd") }
-            if event.modifierFlags.contains(.shift) { parts.append("Shift") }
-            if event.modifierFlags.contains(.option) { parts.append("Opt") }
-            if event.modifierFlags.contains(.control) { parts.append("Ctrl") }
-            parts.append(KeyCodeMap.cgKeyName(keyCode))
-
-            DispatchQueue.main.async {
-                self.capturedKeyCode = keyCode
-                self.capturedModifiers = event.modifierFlags
-                self.capturedKeyName = parts.joined(separator: " + ")
-                self.stopListening()
-            }
-        }
-
-        // Also add local monitor for when the app itself has focus
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
-            let keyCode = event.keyCode
-            var parts: [String] = []
-            if event.modifierFlags.contains(.command) { parts.append("Cmd") }
-            if event.modifierFlags.contains(.shift) { parts.append("Shift") }
-            if event.modifierFlags.contains(.option) { parts.append("Opt") }
-            if event.modifierFlags.contains(.control) { parts.append("Ctrl") }
-            parts.append(KeyCodeMap.cgKeyName(keyCode))
-
-            self.capturedKeyCode = keyCode
-            self.capturedModifiers = event.modifierFlags
-            self.capturedKeyName = parts.joined(separator: " + ")
-            self.stopListening()
-            return nil // consume
-        }
-    }
-
-    private func stopListening() {
-        isListening = false
-        if let monitor = eventMonitor {
-            NSEvent.removeMonitor(monitor)
-            eventMonitor = nil
-        }
-        if let monitor = localMonitor {
-            NSEvent.removeMonitor(monitor)
-            localMonitor = nil
         }
     }
 }
