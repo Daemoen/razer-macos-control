@@ -1,0 +1,28 @@
+# Swift / SPM
+.build/
+.swiftpm/
+Package.resolved
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# macOS
+.DS_Store
+*.dSYM/
+*.app
+*.dmg
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+
+# Distribution
+dist/
+*.pkg
+
+# Secrets (should never exist, but just in case)
+*.p12
+*.mobileprovision

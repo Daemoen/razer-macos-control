@@ -1,0 +1,23 @@
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "RazerControl",
+    platforms: [
+        .macOS(.v13)
+    ],
+    targets: [
+        .executableTarget(
+            name: "RazerControl",
+            path: "Sources/RazerControl",
+            resources: [
+                .copy("Resources")
+            ],
+            linkerSettings: [
+                .linkedFramework("IOKit"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("AppKit")
+            ]
+        )
+    ]
+)
