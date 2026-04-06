@@ -135,6 +135,9 @@ class DeviceManager: ObservableObject {
     private let hidManager = RazerHIDManager()
     private var cancellables = Set<AnyCancellable>()
 
+    private static let keyMappingsKey = "SavedKeyMappings"
+    private static let mouseMappingsKey = "SavedMouseMappings"
+
     init() {
         // Observe HID manager for device changes
         hidManager.$connectedDevices
@@ -147,6 +150,9 @@ class DeviceManager: ObservableObject {
         hidManager.$lastError
             .receive(on: DispatchQueue.main)
             .assign(to: &$lastError)
+
+        // Load saved mappings
+        loadMappings()
     }
 
     // MARK: - Scanning
@@ -226,8 +232,8 @@ class DeviceManager: ObservableObject {
     func setKeyMapping(sourceHID: UInt8, action: KeyAction) {
         keyMappings[sourceHID] = action
         print("[DeviceManager] Mapped HID 0x\(String(format: "%02X", sourceHID)) → \(action)")
+        saveMappings()
 
-        // Auto-start remapping if not already active
         if !isRemappingActive {
             startRemapping()
         } else {
@@ -235,9 +241,9 @@ class DeviceManager: ObservableObject {
         }
     }
 
-    /// Remove a key mapping
     func clearKeyMapping(sourceHID: UInt8) {
         keyMappings.removeValue(forKey: sourceHID)
+        saveMappings()
         if keyMappings.isEmpty {
             stopRemapping()
         } else {
@@ -277,6 +283,7 @@ class DeviceManager: ObservableObject {
     func setMouseMapping(button: Int, action: KeyAction) {
         mouseMappings[button] = action
         print("[DeviceManager] Mouse button \(button) → \(action)")
+        saveMappings()
 
         if !isMouseRemappingActive {
             startMouseRemapping()
@@ -307,6 +314,52 @@ class DeviceManager: ObservableObject {
     func stopMouseRemapping() {
         mouseMapper.stop()
         isMouseRemappingActive = false
+    }
+
+    // MARK: - Persistence
+
+    private func saveMappings() {
+        let encoder = JSONEncoder()
+
+        // Save key mappings (convert UInt8 keys to String for JSON)
+        let keyDict = Dictionary(uniqueKeysWithValues: keyMappings.map { (String($0.key), $0.value) })
+        if let data = try? encoder.encode(keyDict) {
+            UserDefaults.standard.set(data, forKey: Self.keyMappingsKey)
+        }
+
+        // Save mouse mappings (convert Int keys to String for JSON)
+        let mouseDict = Dictionary(uniqueKeysWithValues: mouseMappings.map { (String($0.key), $0.value) })
+        if let data = try? encoder.encode(mouseDict) {
+            UserDefaults.standard.set(data, forKey: Self.mouseMappingsKey)
+        }
+
+        print("[DeviceManager] Saved \(keyMappings.count) key + \(mouseMappings.count) mouse mappings")
+    }
+
+    private func loadMappings() {
+        let decoder = JSONDecoder()
+
+        // Load key mappings
+        if let data = UserDefaults.standard.data(forKey: Self.keyMappingsKey),
+           let dict = try? decoder.decode([String: KeyAction].self, from: data) {
+            keyMappings = Dictionary(uniqueKeysWithValues: dict.compactMap { k, v in
+                UInt8(k).map { ($0, v) }
+            })
+            print("[DeviceManager] Loaded \(keyMappings.count) key mappings")
+        }
+
+        // Load mouse mappings
+        if let data = UserDefaults.standard.data(forKey: Self.mouseMappingsKey),
+           let dict = try? decoder.decode([String: KeyAction].self, from: data) {
+            mouseMappings = Dictionary(uniqueKeysWithValues: dict.compactMap { k, v in
+                Int(k).map { ($0, v) }
+            })
+            print("[DeviceManager] Loaded \(mouseMappings.count) mouse mappings")
+        }
+
+        // Auto-start remapping if mappings exist
+        if !keyMappings.isEmpty { startRemapping() }
+        if !mouseMappings.isEmpty { startMouseRemapping() }
     }
 
     /// Build a KeyAction from captured key info
