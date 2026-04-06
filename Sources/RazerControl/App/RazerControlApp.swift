@@ -4,6 +4,8 @@ import SwiftUI
 struct RazerControlApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var deviceManager = DeviceManager()
+    @AppStorage("hasCompletedSetup") private var hasCompletedSetup = false
+    @State private var showSetupWizard = false
 
     var body: some Scene {
         WindowGroup {
@@ -14,6 +16,15 @@ struct RazerControlApp: App {
                 .background(Color.razerBg)
                 .onAppear {
                     deviceManager.startScanning()
+                    if !hasCompletedSetup {
+                        showSetupWizard = true
+                    }
+                }
+                .sheet(isPresented: $showSetupWizard, onDismiss: {
+                    hasCompletedSetup = true
+                }) {
+                    SetupWizardView(isPresented: $showSetupWizard)
+                        .environmentObject(deviceManager)
                 }
         }
         .windowStyle(.hiddenTitleBar)
