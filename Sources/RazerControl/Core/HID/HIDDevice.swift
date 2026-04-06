@@ -4,22 +4,25 @@ import IOKit.hid
 
 // MARK: - HID Device Wrapper
 
-/// Wraps an IOHIDDevice for sending/receiving Razer USB packets.
-/// Uses IOKit HID Manager (not libusb) — no root required on macOS.
+/// Wraps one or more IOHIDDevice interfaces for a single Razer device.
+/// Each physical Razer device exposes 5-10 USB interfaces. Commands may
+/// only work on specific interfaces, so we try all of them and cache
+/// the working one.
 final class RazerHIDDevice {
-    let ioDevice: IOHIDDevice
     let vendorId: UInt16
     let productId: UInt16
     let productName: String
     let serialNumber: String
 
-    private(set) var isOpen = false
+    /// All IOHIDDevice interfaces for this physical device
+    var interfaces: [IOHIDDevice] = []
+
+    /// The interface that last successfully sent a command (cached)
+    private var workingInterface: IOHIDDevice?
 
     // MARK: - Init
 
     init?(ioDevice: IOHIDDevice) {
-        self.ioDevice = ioDevice
-
         guard let vid = IOHIDDeviceGetProperty(ioDevice, kIOHIDVendorIDKey as CFString) as? Int,
               let pid = IOHIDDeviceGetProperty(ioDevice, kIOHIDProductIDKey as CFString) as? Int else {
             return nil
@@ -29,51 +32,78 @@ final class RazerHIDDevice {
         self.productId = UInt16(pid)
         self.productName = IOHIDDeviceGetProperty(ioDevice, kIOHIDProductKey as CFString) as? String ?? "Unknown"
         self.serialNumber = IOHIDDeviceGetProperty(ioDevice, kIOHIDSerialNumberKey as CFString) as? String ?? ""
+        self.interfaces = [ioDevice]
     }
 
-    // MARK: - Open / Close
-
-    func open() -> Bool {
-        guard !isOpen else { return true }
-        let result = IOHIDDeviceOpen(ioDevice, IOOptionBits(kIOHIDOptionsTypeNone))
-        isOpen = (result == kIOReturnSuccess)
-        if !isOpen {
-            print("[RazerHID] Failed to open device \(productName): \(String(format: "0x%08X", result))")
-        }
-        return isOpen
+    /// Add another interface for this same physical device
+    func addInterface(_ ioDevice: IOHIDDevice) {
+        interfaces.append(ioDevice)
+        // Reset cache so next send retries all interfaces
+        workingInterface = nil
     }
+
+    // MARK: - Close
 
     func close() {
-        guard isOpen else { return }
-        IOHIDDeviceClose(ioDevice, IOOptionBits(kIOHIDOptionsTypeNone))
-        isOpen = false
+        for iface in interfaces {
+            IOHIDDeviceClose(iface, IOOptionBits(kIOHIDOptionsTypeNone))
+        }
+        interfaces.removeAll()
+        workingInterface = nil
     }
 
-    // MARK: - Send Packet (Feature Report)
+    // MARK: - Send Packet (tries all interfaces)
 
     /// Send a RazerPacket as a HID feature report.
-    /// This is the primary way to communicate with Razer devices.
+    /// Tries the cached working interface first, then all others.
     /// Returns the response packet, or nil on failure.
     @discardableResult
     func sendPacket(_ packet: RazerPacket) -> RazerPacket? {
-        guard isOpen || open() else { return nil }
+        // Try cached interface first
+        if let working = workingInterface {
+            if let response = trySendOnInterface(working, packet: packet) {
+                return response
+            }
+            workingInterface = nil // cache invalidated
+        }
 
-        // Send the feature report
+        // Try all interfaces
+        for iface in interfaces {
+            if let response = trySendOnInterface(iface, packet: packet) {
+                workingInterface = iface // cache for next time
+                let usage = IOHIDDeviceGetProperty(iface, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
+                let usagePage = IOHIDDeviceGetProperty(iface, kIOHIDPrimaryUsagePageKey as CFString) as? Int ?? 0
+                print("[RazerHID] Working interface found: [UP:\(String(format: "0x%04X", usagePage)) U:\(String(format: "0x%04X", usage))]")
+                return response
+            }
+        }
+
+        print("[RazerHID] All \(interfaces.count) interfaces failed for \(productName)")
+        return nil
+    }
+
+    private func trySendOnInterface(_ iface: IOHIDDevice, packet: RazerPacket) -> RazerPacket? {
+        // Ensure open
+        let openResult = IOHIDDeviceOpen(iface, IOOptionBits(kIOHIDOptionsTypeNone))
+        // kIOReturnSuccess or already-open is fine
+        guard openResult == kIOReturnSuccess || openResult == kIOReturnExclusiveAccess else {
+            return nil
+        }
+
         let sendData = packet.bytes
         let sendResult = IOHIDDeviceSetReport(
-            ioDevice,
+            iface,
             kIOHIDReportTypeFeature,
-            CFIndex(0x00),  // Report ID
+            CFIndex(0x00),
             sendData,
             sendData.count
         )
 
         guard sendResult == kIOReturnSuccess else {
-            print("[RazerHID] SetReport failed for \(productName): \(String(format: "0x%08X", sendResult))")
             return nil
         }
 
-        // Wait for the device to process (important for USB timing)
+        // Wait for the device to process
         usleep(RazerUSB.postWriteDelay)
 
         // Read response
@@ -81,7 +111,7 @@ final class RazerHIDDevice {
         var reportLength = RazerPacket.packetSize
 
         let readResult = IOHIDDeviceGetReport(
-            ioDevice,
+            iface,
             kIOHIDReportTypeFeature,
             CFIndex(0x00),
             &response,
@@ -89,25 +119,29 @@ final class RazerHIDDevice {
         )
 
         guard readResult == kIOReturnSuccess else {
-            print("[RazerHID] GetReport failed for \(productName): \(String(format: "0x%08X", readResult))")
             return nil
         }
 
         var responsePacket = RazerPacket()
         responsePacket.data = response
+
+        // Only count as success if device acknowledged (status 0x02)
+        // or at least didn't explicitly fail
+        if responsePacket.status == .failure {
+            return nil
+        }
+
         return responsePacket
     }
 
     // MARK: - Convenience Commands
 
-    /// Initialize macro keys (switch to driver mode)
     func initMacroKeys(transactionId: UInt8) -> Bool {
         let packet = RazerPacket.setDriverMode(transactionId: transactionId)
         let response = sendPacket(packet)
         return response?.isSuccess ?? false
     }
 
-    /// Set static color on a specific LED zone
     func setStaticColor(r: UInt8, g: UInt8, b: UInt8, led: RazerLED = .backlight,
                         protocol proto: RazerProtocolVersion, transactionId: UInt8) -> Bool {
         let packet: RazerPacket
@@ -117,11 +151,9 @@ final class RazerHIDDevice {
         case .extended, .mouseExtended:
             packet = .extendedStatic(led: led, r: r, g: g, b: b, transactionId: transactionId)
         }
-        let response = sendPacket(packet)
-        return response?.isSuccess ?? false
+        return sendPacket(packet) != nil
     }
 
-    /// Set wave effect
     func setWaveEffect(direction: RazerWaveDirection = .leftToRight, led: RazerLED = .backlight,
                        protocol proto: RazerProtocolVersion, transactionId: UInt8) -> Bool {
         let packet: RazerPacket
@@ -131,10 +163,9 @@ final class RazerHIDDevice {
         case .extended, .mouseExtended:
             packet = .extendedWave(led: led, direction: direction, transactionId: transactionId)
         }
-        return sendPacket(packet)?.isSuccess ?? false
+        return sendPacket(packet) != nil
     }
 
-    /// Set spectrum cycling effect
     func setSpectrumEffect(led: RazerLED = .backlight, protocol proto: RazerProtocolVersion,
                            transactionId: UInt8) -> Bool {
         let packet: RazerPacket
@@ -144,10 +175,9 @@ final class RazerHIDDevice {
         case .extended, .mouseExtended:
             packet = .extendedSpectrum(led: led, transactionId: transactionId)
         }
-        return sendPacket(packet)?.isSuccess ?? false
+        return sendPacket(packet) != nil
     }
 
-    /// Set breathing effect
     func setBreathingEffect(r: UInt8, g: UInt8, b: UInt8, led: RazerLED = .backlight,
                             protocol proto: RazerProtocolVersion, transactionId: UInt8) -> Bool {
         let packet: RazerPacket
@@ -157,10 +187,9 @@ final class RazerHIDDevice {
         case .extended, .mouseExtended:
             packet = .extendedBreathing(led: led, r: r, g: g, b: b, transactionId: transactionId)
         }
-        return sendPacket(packet)?.isSuccess ?? false
+        return sendPacket(packet) != nil
     }
 
-    /// Turn off lighting
     func setOff(led: RazerLED = .backlight, protocol proto: RazerProtocolVersion,
                 transactionId: UInt8) -> Bool {
         let packet: RazerPacket
@@ -170,16 +199,14 @@ final class RazerHIDDevice {
         case .extended, .mouseExtended:
             packet = .extendedOff(led: led, transactionId: transactionId)
         }
-        return sendPacket(packet)?.isSuccess ?? false
+        return sendPacket(packet) != nil
     }
 
-    /// Set brightness (0-255)
     func setBrightness(_ value: UInt8, led: RazerLED = .backlight, transactionId: UInt8) -> Bool {
         let packet = RazerPacket.setBrightness(led: led, value: value, transactionId: transactionId)
-        return sendPacket(packet)?.isSuccess ?? false
+        return sendPacket(packet) != nil
     }
 
-    /// Get firmware version string
     func getFirmwareVersion(transactionId: UInt8) -> String? {
         let packet = RazerPacket.getFirmwareVersion(transactionId: transactionId)
         guard let response = sendPacket(packet), response.isSuccess else { return nil }
@@ -191,6 +218,6 @@ final class RazerHIDDevice {
     // MARK: - Debug
 
     var debugDescription: String {
-        "RazerHIDDevice(\(productName), VID:\(String(format: "0x%04X", vendorId)), PID:\(String(format: "0x%04X", productId)), SN:\(serialNumber))"
+        "RazerHIDDevice(\(productName), PID:\(String(format: "0x%04X", productId)), \(interfaces.count) interfaces)"
     }
 }

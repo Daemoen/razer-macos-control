@@ -596,6 +596,7 @@ struct KeyMapperSheet: View {
     @State private var capturedModifiers: NSEvent.ModifierFlags = []
     @State private var isListening = false
     @State private var eventMonitor: Any? = nil
+    @State private var localMonitor: Any? = nil
 
     let actions = ["Keystroke", "Shortcut", "Launch App", "Media", "Macro", "Disable"]
 
@@ -706,26 +707,43 @@ struct KeyMapperSheet: View {
         isListening = true
         capturedKeyName = ""
 
-        // Local monitor captures keys even when sheet is focused
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
-            if event.type == .keyDown {
-                let keyCode = event.keyCode
-                capturedKeyCode = keyCode
-                capturedModifiers = event.modifierFlags
+        // Use GLOBAL monitor to capture keys even when another app (e.g. Terminal) has focus.
+        // Requires Accessibility permission (TCC), which the Setup Wizard guides the user to grant.
+        // Global monitor cannot consume events (returns Void), but we just need to read them.
+        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown]) { event in
+            let keyCode = event.keyCode
 
-                // Build display string
-                var parts: [String] = []
-                if event.modifierFlags.contains(.command) { parts.append("Cmd") }
-                if event.modifierFlags.contains(.shift) { parts.append("Shift") }
-                if event.modifierFlags.contains(.option) { parts.append("Opt") }
-                if event.modifierFlags.contains(.control) { parts.append("Ctrl") }
-                parts.append(KeyCodeMap.cgKeyName(keyCode))
+            // Build display string with modifiers
+            var parts: [String] = []
+            if event.modifierFlags.contains(.command) { parts.append("Cmd") }
+            if event.modifierFlags.contains(.shift) { parts.append("Shift") }
+            if event.modifierFlags.contains(.option) { parts.append("Opt") }
+            if event.modifierFlags.contains(.control) { parts.append("Ctrl") }
+            parts.append(KeyCodeMap.cgKeyName(keyCode))
 
-                capturedKeyName = parts.joined(separator: " + ")
-                stopListening()
-                return nil // consume the event
+            DispatchQueue.main.async {
+                self.capturedKeyCode = keyCode
+                self.capturedModifiers = event.modifierFlags
+                self.capturedKeyName = parts.joined(separator: " + ")
+                self.stopListening()
             }
-            return event
+        }
+
+        // Also add local monitor for when the app itself has focus
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
+            let keyCode = event.keyCode
+            var parts: [String] = []
+            if event.modifierFlags.contains(.command) { parts.append("Cmd") }
+            if event.modifierFlags.contains(.shift) { parts.append("Shift") }
+            if event.modifierFlags.contains(.option) { parts.append("Opt") }
+            if event.modifierFlags.contains(.control) { parts.append("Ctrl") }
+            parts.append(KeyCodeMap.cgKeyName(keyCode))
+
+            self.capturedKeyCode = keyCode
+            self.capturedModifiers = event.modifierFlags
+            self.capturedKeyName = parts.joined(separator: " + ")
+            self.stopListening()
+            return nil // consume
         }
     }
 
@@ -734,6 +752,10 @@ struct KeyMapperSheet: View {
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
             eventMonitor = nil
+        }
+        if let monitor = localMonitor {
+            NSEvent.removeMonitor(monitor)
+            localMonitor = nil
         }
     }
 }
