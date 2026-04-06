@@ -29,3 +29,8 @@ dist/
 
 # Build artifacts
 dist/
+
+# Claude Code internal files
+.claude/
+AGENTS.md
+PLAN.md
