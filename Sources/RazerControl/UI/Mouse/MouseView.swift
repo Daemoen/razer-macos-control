@@ -502,8 +502,31 @@ struct MouseMapperSheet: View {
                 Button("Apply") { applyMapping() }.buttonStyle(.razerPrimary)
             }.padding(.horizontal, 20).padding(.bottom, 20)
         }
-        .frame(width: 420, height: 420)
+        .frame(width: 420, height: 440)
         .background(Color.razerSurface)
+        .onAppear { loadCurrentMapping() }
+    }
+
+    private func loadCurrentMapping() {
+        guard let action = deviceManager.mouseMappings[cgButtonNumber] else { return }
+        switch action {
+        case .disabled:
+            wantDisable = true
+        case .keystroke(let hidKey):
+            if let cgKey = KeyCodeMap.hidToCG[hidKey] {
+                selectedKey = KeyCodeMap.cgKeyName(cgKey)
+            }
+        case .shortcut(let mods, let hidKey):
+            if let cgKey = KeyCodeMap.hidToCG[hidKey] {
+                selectedKey = KeyCodeMap.cgKeyName(cgKey)
+            }
+            useCmd = (mods & 0x01) != 0
+            useShift = (mods & 0x02) != 0
+            useOpt = (mods & 0x04) != 0
+            useCtrl = (mods & 0x08) != 0
+        default:
+            break
+        }
     }
 
     private func applyMapping() {

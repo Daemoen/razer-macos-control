@@ -248,10 +248,21 @@ class DeviceManager: ObservableObject {
     /// Start the CGEventTap to intercept and remap keys
     func startRemapping() {
         guard !keyMappings.isEmpty else { return }
+
+        // Check and prompt for Accessibility before starting
+        if !AXIsProcessTrusted() {
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+            AXIsProcessTrustedWithOptions(options)
+            lastError = "Grant Accessibility to RazerControl in System Settings, then try again"
+            return
+        }
+
         keyMapper.start(with: keyMappings)
         isRemappingActive = keyMapper.isActive
         if let err = keyMapper.error {
             lastError = err
+        } else {
+            lastError = nil
         }
     }
 
@@ -276,10 +287,20 @@ class DeviceManager: ObservableObject {
 
     func startMouseRemapping() {
         guard !mouseMappings.isEmpty else { return }
+
+        if !AXIsProcessTrusted() {
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+            AXIsProcessTrustedWithOptions(options)
+            lastError = "Grant Accessibility to RazerControl in System Settings, then try again"
+            return
+        }
+
         mouseMapper.start(with: mouseMappings)
         isMouseRemappingActive = mouseMapper.isActive
         if let err = mouseMapper.error {
             lastError = err
+        } else {
+            lastError = nil
         }
     }
 

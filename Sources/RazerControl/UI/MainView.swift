@@ -108,11 +108,32 @@ struct MainView: View {
                         .padding(.horizontal, 16)
                 }
 
+                // Accessibility status for key remapping
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(AXIsProcessTrusted() ? Color.razerSuccess : Color.razerWarning)
+                        .frame(width: 5, height: 5)
+                    Text(AXIsProcessTrusted() ? "Accessibility: OK" : "Accessibility: needed for remapping")
+                        .font(RazerFont.caption(9))
+                        .foregroundColor(.razerTextTertiary)
+
+                    if !AXIsProcessTrusted() {
+                        Button("Grant") {
+                            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+                            AXIsProcessTrustedWithOptions(opts)
+                        }
+                        .font(RazerFont.caption(8))
+                        .foregroundColor(.razerGreen)
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+
                 if let err = deviceManager.lastError {
                     Text(err)
                         .font(RazerFont.caption(9))
                         .foregroundColor(.razerError)
-                        .lineLimit(2)
+                        .lineLimit(3)
                         .padding(.horizontal, 16)
                 }
 
