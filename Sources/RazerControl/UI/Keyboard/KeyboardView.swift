@@ -591,6 +591,12 @@ struct KeyMapperSheet: View {
     let key: KeyInfo
     @Binding var isPresented: Bool
     @State private var selectedAction = 0
+    @State private var capturedKeyName: String = ""
+    @State private var capturedKeyCode: UInt16 = 0
+    @State private var capturedModifiers: NSEvent.ModifierFlags = []
+    @State private var isListening = false
+    @State private var eventMonitor: Any? = nil
+
     let actions = ["Keystroke", "Shortcut", "Launch App", "Media", "Macro", "Disable"]
 
     var body: some View {
@@ -625,26 +631,109 @@ struct KeyMapperSheet: View {
                 }
             }.padding(.horizontal, 20)
 
+            // Key capture area
             VStack(alignment: .leading, spacing: 6) {
-                Text("Press key combination:").font(RazerFont.body(12)).foregroundColor(.razerTextSecondary)
-                Text("Waiting for input...")
-                    .font(RazerFont.mono(13)).foregroundColor(.razerTextTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.razerBg)
-                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.razerGreen.opacity(0.3), lineWidth: 1)))
+                HStack {
+                    Text("Target key combination:").font(RazerFont.body(12)).foregroundColor(.razerTextSecondary)
+                    Spacer()
+                    Button(isListening ? "Stop" : "Record") {
+                        if isListening { stopListening() } else { startListening() }
+                    }
+                    .font(RazerFont.caption(11))
+                    .foregroundColor(.razerGreen)
+                    .buttonStyle(.plain)
+                }
+
+                HStack {
+                    if capturedKeyName.isEmpty {
+                        if isListening {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(Color.razerError)
+                                    .frame(width: 8, height: 8)
+                                Text("Press any key or shortcut...")
+                                    .font(RazerFont.mono(13))
+                                    .foregroundColor(.razerWarning)
+                            }
+                        } else {
+                            Text("Click \"Record\" then press the target key")
+                                .font(RazerFont.mono(12))
+                                .foregroundColor(.razerTextTertiary)
+                        }
+                    } else {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.razerSuccess)
+                            Text(capturedKeyName)
+                                .font(RazerFont.mono(14))
+                                .foregroundColor(.razerGreen)
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.razerBg)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(
+                                    isListening ? Color.razerWarning.opacity(0.6) : Color.razerGreen.opacity(0.3),
+                                    lineWidth: isListening ? 2 : 1
+                                )
+                        )
+                )
             }.padding(.horizontal, 20)
 
             Spacer()
 
             HStack {
-                Button("Cancel") { isPresented = false }.buttonStyle(.razerSecondary)
+                Button("Cancel") { stopListening(); isPresented = false }.buttonStyle(.razerSecondary)
                 Spacer()
-                Button("Clear") {}.buttonStyle(.razerSecondary)
-                Button("Apply") { isPresented = false }.buttonStyle(.razerPrimary)
+                Button("Clear") { capturedKeyName = ""; capturedKeyCode = 0 }.buttonStyle(.razerSecondary)
+                Button("Apply") { stopListening(); isPresented = false }.buttonStyle(.razerPrimary)
             }.padding(.horizontal, 20).padding(.bottom, 20)
         }
-        .frame(width: 460, height: 380)
+        .frame(width: 480, height: 400)
         .background(Color.razerSurface)
+        .onDisappear { stopListening() }
+    }
+
+    // MARK: - Key Capture via NSEvent
+
+    private func startListening() {
+        isListening = true
+        capturedKeyName = ""
+
+        // Local monitor captures keys even when sheet is focused
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+            if event.type == .keyDown {
+                let keyCode = event.keyCode
+                capturedKeyCode = keyCode
+                capturedModifiers = event.modifierFlags
+
+                // Build display string
+                var parts: [String] = []
+                if event.modifierFlags.contains(.command) { parts.append("Cmd") }
+                if event.modifierFlags.contains(.shift) { parts.append("Shift") }
+                if event.modifierFlags.contains(.option) { parts.append("Opt") }
+                if event.modifierFlags.contains(.control) { parts.append("Ctrl") }
+                parts.append(KeyCodeMap.cgKeyName(keyCode))
+
+                capturedKeyName = parts.joined(separator: " + ")
+                stopListening()
+                return nil // consume the event
+            }
+            return event
+        }
+    }
+
+    private func stopListening() {
+        isListening = false
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
     }
 }

@@ -16,14 +16,18 @@ struct SetupWizardView: View {
             Divider().background(Color.razerBorder)
 
             // Step content
-            Group {
-                switch currentStep {
-                case 0: welcomeStep
-                case 1: deviceStep
-                case 2: permissionsStep
-                case 3: completeStep
-                default: completeStep
+            ScrollView {
+                Group {
+                    switch currentStep {
+                    case 0: welcomeStep
+                    case 1: deviceStep
+                    case 2: permissionsStep
+                    case 3: completeStep
+                    default: completeStep
+                    }
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -32,7 +36,7 @@ struct SetupWizardView: View {
             // Navigation buttons
             wizardFooter
         }
-        .frame(width: 560, height: 480)
+        .frame(width: 620, height: 560)
         .background(Color.razerSurface)
         .onAppear {
             permissions.checkAll()

@@ -89,31 +89,51 @@ final class RazerHIDManager: ObservableObject {
     private func deviceConnected(_ ioDevice: IOHIDDevice) {
         guard let device = RazerHIDDevice(ioDevice: ioDevice) else { return }
 
-        // Each Razer device exposes multiple USB interfaces (5-10).
-        // We only want the control interface that accepts feature reports.
-        // Diagnostic found: UsagePage 0x0001 (Generic Desktop), Usage 0x0000 works for keyboards.
-        // For mice, Usage 0x0002 (Mouse) works.
-        // Skip vendor-specific (0x0059) and duplicate keyboard interfaces.
         let usagePage = IOHIDDeviceGetProperty(ioDevice, kIOHIDPrimaryUsagePageKey as CFString) as? Int ?? 0
         let usage = IOHIDDeviceGetProperty(ioDevice, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
 
-        // Filter: only accept the control interface
-        // - UsagePage 0x0001, Usage 0x0000: keyboard control interface (confirmed working for BW V4 Pro)
-        // - UsagePage 0x0001, Usage 0x0002: mouse control interface
-        let isControlInterface = (usagePage == 0x0001 && usage == 0x0000) ||
-                                 (usagePage == 0x0001 && usage == 0x0002)
+        // Each Razer device exposes 5-10 USB interfaces. Only some accept control commands.
+        // Verified with real hardware:
+        //   BlackWidow V4 Pro: UsagePage 0x0001, Usage 0x0000 is the control interface
+        //   Pro Click V2 Vertical: UsagePage 0x0001, Usage 0x0002 works
+        //
+        // Strategy: accept candidate interfaces, and if we already have one for this PID,
+        // replace it only if the new one is "better" (Usage 0x0000 is preferred for keyboards).
 
-        guard isControlInterface else {
-            return // skip non-control interfaces
+        let usageScore: Int
+        switch (usagePage, usage) {
+        case (0x0001, 0x0000): usageScore = 100  // Generic Desktop, undefined — keyboard control (best)
+        case (0x0001, 0x0002): usageScore = 80   // Generic Desktop, Mouse — works for mice
+        case (0x0001, 0x0006): usageScore = 50   // Generic Desktop, Keyboard — input interface (not for commands)
+        default: usageScore = 0                   // Vendor-specific or other — skip
         }
 
-        // Avoid duplicates (same PID already added)
-        if connectedDevices.contains(where: { $0.productId == device.productId }) {
+        guard usageScore > 0 else { return }
+
+        // Check if we already have this PID
+        if let existingIdx = connectedDevices.firstIndex(where: { $0.productId == device.productId }) {
+            let existingIO = connectedDevices[existingIdx].ioDevice
+            let existingUsage = IOHIDDeviceGetProperty(existingIO, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
+            let existingPage = IOHIDDeviceGetProperty(existingIO, kIOHIDPrimaryUsagePageKey as CFString) as? Int ?? 0
+            let existingScore: Int
+            switch (existingPage, existingUsage) {
+            case (0x0001, 0x0000): existingScore = 100
+            case (0x0001, 0x0002): existingScore = 80
+            case (0x0001, 0x0006): existingScore = 50
+            default: existingScore = 0
+            }
+
+            if usageScore > existingScore {
+                // Replace with better interface
+                connectedDevices[existingIdx].close()
+                connectedDevices[existingIdx] = device
+                print("[RazerHID] Upgraded: \(device.debugDescription) [UP:\(String(format: "0x%04X", usagePage)) U:\(String(format: "0x%04X", usage)) score:\(usageScore)]")
+            }
             return
         }
 
         connectedDevices.append(device)
-        print("[RazerHID] Connected: \(device.debugDescription) [UP:\(String(format: "0x%04X", usagePage)) U:\(String(format: "0x%04X", usage))]")
+        print("[RazerHID] Connected: \(device.debugDescription) [UP:\(String(format: "0x%04X", usagePage)) U:\(String(format: "0x%04X", usage)) score:\(usageScore)]")
     }
 
     private func deviceDisconnected(_ ioDevice: IOHIDDevice) {
