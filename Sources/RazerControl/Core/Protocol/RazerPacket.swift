@@ -232,14 +232,15 @@ extension RazerPacket {
     static func extendedWave(
         led: RazerLED = .backlight,
         direction: RazerWaveDirection = .leftToRight,
-        speed: UInt8 = 0x28,
         transactionId: UInt8 = RazerTransactionID.standard.rawValue
     ) -> RazerPacket {
+        // V4 Pro uses short format: [storage, led, effect, direction]
+        // Speed parameter is NOT supported on newer devices
         RazerPacket(
             transactionId: transactionId,
             commandClass: .extended,
             commandId: RazerCmd.extEffect,
-            args: [RazerLEDStorage.variableStore.rawValue, led.rawValue, RazerExtendedEffect.wave.rawValue, 0x00, 0x00, speed, direction.rawValue]
+            args: [RazerLEDStorage.variableStore.rawValue, led.rawValue, RazerExtendedEffect.wave.rawValue, direction.rawValue]
         )
     }
 

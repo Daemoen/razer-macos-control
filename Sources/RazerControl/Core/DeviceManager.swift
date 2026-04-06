@@ -44,18 +44,23 @@ class ConnectedDevice: Identifiable, ObservableObject {
 
     // MARK: - Lighting
 
+    /// Default LED for this device — keyboards use backlight, mice use none (all)
+    var defaultLED: RazerLED {
+        info.zones.first?.led ?? (type == .keyboard ? .backlight : .none)
+    }
+
     func setStaticColor(_ color: Color) -> Bool {
         let (r, g, b) = color.rgbBytes
         return hidDevice.setStaticColor(
-            r: r, g: g, b: b,
+            r: r, g: g, b: b, led: defaultLED,
             protocol: info.protocolVersion,
             transactionId: info.transactionId
         )
     }
 
-    func setStaticColor(r: UInt8, g: UInt8, b: UInt8, led: RazerLED = .backlight) -> Bool {
+    func setStaticColor(r: UInt8, g: UInt8, b: UInt8, led: RazerLED? = nil) -> Bool {
         hidDevice.setStaticColor(
-            r: r, g: g, b: b, led: led,
+            r: r, g: g, b: b, led: led ?? defaultLED,
             protocol: info.protocolVersion,
             transactionId: info.transactionId
         )
@@ -63,7 +68,7 @@ class ConnectedDevice: Identifiable, ObservableObject {
 
     func setWaveEffect(direction: RazerWaveDirection = .leftToRight) -> Bool {
         hidDevice.setWaveEffect(
-            direction: direction,
+            direction: direction, led: defaultLED,
             protocol: info.protocolVersion,
             transactionId: info.transactionId
         )
@@ -71,6 +76,7 @@ class ConnectedDevice: Identifiable, ObservableObject {
 
     func setSpectrumEffect() -> Bool {
         hidDevice.setSpectrumEffect(
+            led: defaultLED,
             protocol: info.protocolVersion,
             transactionId: info.transactionId
         )
@@ -79,7 +85,7 @@ class ConnectedDevice: Identifiable, ObservableObject {
     func setBreathingEffect(_ color: Color) -> Bool {
         let (r, g, b) = color.rgbBytes
         return hidDevice.setBreathingEffect(
-            r: r, g: g, b: b,
+            r: r, g: g, b: b, led: defaultLED,
             protocol: info.protocolVersion,
             transactionId: info.transactionId
         )
@@ -87,6 +93,7 @@ class ConnectedDevice: Identifiable, ObservableObject {
 
     func setOff() -> Bool {
         hidDevice.setOff(
+            led: defaultLED,
             protocol: info.protocolVersion,
             transactionId: info.transactionId
         )
@@ -94,7 +101,7 @@ class ConnectedDevice: Identifiable, ObservableObject {
 
     func setBrightness(_ value: Double) -> Bool {
         let byte = UInt8(max(0, min(255, value * 255)))
-        let success = hidDevice.setBrightness(byte, transactionId: info.transactionId)
+        let success = hidDevice.setBrightness(byte, led: defaultLED, transactionId: info.transactionId)
         if success { currentBrightness = value }
         return success
     }

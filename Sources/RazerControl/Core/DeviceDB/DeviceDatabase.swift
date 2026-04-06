@@ -231,11 +231,11 @@ final class DeviceDatabase {
     // MARK: - Mice
 
     private func registerMice() {
-        let mouseZones = [
-            RazerDeviceZone(led: .scrollWheel, label: "Scroll Wheel"),
-            RazerDeviceZone(led: .logo, label: "Logo"),
+        let mouseZonesBasic = [
+            RazerDeviceZone(led: .none, label: "All"),
         ]
-        let mouseZonesUnderglow = mouseZones + [
+        let mouseZonesUnderglow = [
+            RazerDeviceZone(led: .none, label: "All"),
             RazerDeviceZone(led: .underglow, label: "Underglow"),
         ]
 
@@ -264,7 +264,7 @@ final class DeviceDatabase {
             pid: 0x00B7, name: "DeathAdder V3 Pro", type: .mouse,
             features: [.staticEffect, .breathingEffect, .spectrumEffect, .dpiControl, .wireless],
             proto: .extended, txId: 0x3F,
-            zones: mouseZones, dpiMax: 30000, buttons: 5
+            zones: mouseZonesBasic, dpiMax: 30000, buttons: 5
         ))
 
         // Viper V3 Pro
