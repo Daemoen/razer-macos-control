@@ -2,7 +2,7 @@ import SwiftUI
 
 enum PreviewDevice: String, CaseIterable {
     case keyboard = "Keyboard"
-    case mouse = "Mouse"
+    // Mouse RGB not supported on Pro Click V2 Vertical — removed for now
 }
 
 struct LightingView: View {
@@ -77,17 +77,7 @@ struct LightingView: View {
 
     private var effectPreview: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                RazerSectionHeader("Preview")
-                Spacer()
-                Picker("", selection: $previewDevice) {
-                    ForEach(PreviewDevice.allCases, id: \.self) { d in
-                        Text(d.rawValue).tag(d)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 180)
-            }
+            RazerSectionHeader("Preview", subtitle: "Keyboard")
 
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
@@ -99,63 +89,19 @@ struct LightingView: View {
                     )
                     .shadow(color: primaryColor.opacity(0.3), radius: 20)
 
-                if previewDevice == .keyboard {
-                    // Keyboard silhouette
-                    VStack(spacing: 3) {
-                        ForEach(0..<5, id: \.self) { row in
-                            HStack(spacing: 3) {
-                                ForEach(0..<(14 - (row == 4 ? 5 : 0)), id: \.self) { col in
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .fill(keyColor(row: row, col: col).opacity(brightness))
-                                        .frame(width: row == 4 && col == 3 ? 80 : 28, height: 18)
-                                }
-                            }
-                        }
-                    }
-                    .padding(20)
-                } else {
-                    // Mouse silhouette with lit zones
-                    HStack(spacing: 30) {
-                        // Mouse body with scroll wheel glow
-                        ZStack {
-                            VerticalMouseShape()
-                                .fill(Color.razerSurfaceLight.opacity(0.5))
-                                .frame(width: 80, height: 140)
-                                .overlay(
-                                    VerticalMouseShape()
-                                        .strokeBorder(keyColor(row: 0, col: 0).opacity(brightness), lineWidth: 2)
-                                )
-                                .razerGlow(color: keyColor(row: 0, col: 0), radius: 10, isActive: brightness > 0)
-
-                            // Scroll wheel LED
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(keyColor(row: 0, col: 3).opacity(brightness))
-                                .frame(width: 8, height: 20)
-                                .offset(y: -30)
-                                .razerGlow(color: keyColor(row: 0, col: 3), radius: 6, isActive: brightness > 0)
-
-                            // Logo zone
-                            Circle()
-                                .fill(keyColor(row: 2, col: 5).opacity(brightness))
-                                .frame(width: 16, height: 16)
-                                .offset(y: 20)
-                                .razerGlow(color: keyColor(row: 2, col: 5), radius: 8, isActive: brightness > 0)
-                        }
-
-                        // DPI indicator dots
-                        VStack(spacing: 6) {
-                            Text("DPI Stages")
-                                .font(RazerFont.caption(9))
-                                .foregroundColor(.razerTextTertiary)
-                            ForEach(0..<5, id: \.self) { i in
-                                Circle()
-                                    .fill(keyColor(row: 0, col: i * 2).opacity(brightness))
-                                    .frame(width: 8, height: 8)
-                                    .razerGlow(color: keyColor(row: 0, col: i * 2), radius: 3, isActive: brightness > 0)
+                // Keyboard silhouette
+                VStack(spacing: 3) {
+                    ForEach(0..<5, id: \.self) { row in
+                        HStack(spacing: 3) {
+                            ForEach(0..<(14 - (row == 4 ? 5 : 0)), id: \.self) { col in
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(keyColor(row: row, col: col).opacity(brightness))
+                                    .frame(width: row == 4 && col == 3 ? 80 : 28, height: 18)
                             }
                         }
                     }
                 }
+                .padding(20)
             }
         }
         .razerCard()
@@ -439,15 +385,8 @@ struct LightingView: View {
     // MARK: - Apply to Real Device
 
     private func applyEffectToDevice() {
-        // Pick the right device based on preview mode
-        let device: ConnectedDevice?
-        switch previewDevice {
-        case .keyboard: device = deviceManager.selectedKeyboard
-        case .mouse: device = deviceManager.selectedMouse
-        }
-
-        guard let device else {
-            applyStatus = "No \(previewDevice.rawValue.lowercased()) connected"
+        guard let device = deviceManager.selectedKeyboard else {
+            applyStatus = "No keyboard connected"
             return
         }
 
@@ -456,6 +395,9 @@ struct LightingView: View {
         // Apply brightness first
         _ = device.setBrightness(brightness)
 
+        // Convert UI speed (0.1-1.0) to USB speed (0xFF=slowest to 0x01=fastest)
+        let usbSpeed = UInt8(max(1, min(255, Int((1.0 - speed) * 254) + 1)))
+
         // Apply the selected effect
         switch selectedEffect {
         case .static_:
@@ -463,21 +405,22 @@ struct LightingView: View {
         case .breathing:
             success = device.setBreathingEffect(primaryColor)
         case .wave:
-            success = device.setWaveEffect(direction: direction == 0 ? .leftToRight : .rightToLeft)
+            success = device.setWaveEffect(
+                direction: direction == 0 ? .leftToRight : .rightToLeft,
+                speed: usbSpeed
+            )
         case .spectrum:
             success = device.setSpectrumEffect()
         case .off:
             success = device.setOff()
         case .reactive, .starlight:
-            // These need additional parameters — use static as fallback for now
             success = device.setStaticColor(primaryColor)
         }
 
-        applyStatus = success ? "Applied!" : "Failed to apply effect"
+        applyStatus = success ? "Applied!" : "Failed to apply"
 
-        // Clear status after 2s
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            if applyStatus == "Applied!" || applyStatus == "Failed to apply effect" {
+            if applyStatus == "Applied!" || applyStatus == "Failed to apply" {
                 applyStatus = nil
             }
         }

@@ -154,14 +154,15 @@ final class RazerHIDDevice {
         return sendPacket(packet) != nil
     }
 
-    func setWaveEffect(direction: RazerWaveDirection = .leftToRight, led: RazerLED = .backlight,
+    func setWaveEffect(direction: RazerWaveDirection = .leftToRight, speed: UInt8 = 0x60,
+                       led: RazerLED = .backlight,
                        protocol proto: RazerProtocolVersion, transactionId: UInt8) -> Bool {
         let packet: RazerPacket
         switch proto {
         case .standard:
             packet = .standardWave(direction: direction, transactionId: transactionId)
         case .extended, .mouseExtended:
-            packet = .extendedWave(led: led, direction: direction, transactionId: transactionId)
+            packet = .extendedWave(led: led, direction: direction, speed: speed, transactionId: transactionId)
         }
         return sendPacket(packet) != nil
     }

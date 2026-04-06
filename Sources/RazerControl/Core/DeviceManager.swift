@@ -66,9 +66,9 @@ class ConnectedDevice: Identifiable, ObservableObject {
         )
     }
 
-    func setWaveEffect(direction: RazerWaveDirection = .leftToRight) -> Bool {
+    func setWaveEffect(direction: RazerWaveDirection = .leftToRight, speed: UInt8 = 0x60) -> Bool {
         hidDevice.setWaveEffect(
-            direction: direction, led: defaultLED,
+            direction: direction, speed: speed, led: defaultLED,
             protocol: info.protocolVersion,
             transactionId: info.transactionId
         )
