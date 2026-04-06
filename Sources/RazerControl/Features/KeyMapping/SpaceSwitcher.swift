@@ -1,13 +1,13 @@
 import Foundation
 import CoreGraphics
+import AppKit
+import ColorSync
 
 // MARK: - Space Switcher (Private SkyLight API)
 //
 // Switches macOS Spaces/Desktops using the private SkyLight framework.
-// CGEventPost cannot trigger Mission Control shortcuts, but this API
-// can switch spaces directly. Same approach used by yabai, skhd, etc.
-//
-// WARNING: Private API — may break in future macOS updates.
+// Detects which display the mouse cursor is on and switches spaces
+// on THAT display. Works with multiple monitors.
 
 class SpaceSwitcher {
     private var handle: UnsafeMutableRawPointer?
@@ -38,75 +38,114 @@ class SpaceSwitcher {
             setSpace = unsafeBitCast(s, to: (@convention(c) (Int, CFString, Int) -> Void).self)
         }
 
-        let available = getConn != nil && getActive != nil && copySpaces != nil && setSpace != nil
-        print("[SpaceSwitcher] Initialized: \(available ? "OK" : "FAILED — some symbols missing")")
+        print("[SpaceSwitcher] Initialized: \(isAvailable ? "OK" : "FAILED")")
     }
 
     var isAvailable: Bool {
         getConn != nil && getActive != nil && copySpaces != nil && setSpace != nil
     }
 
-    // MARK: - Get Current Space Info
-
     private func connection() -> Int { getConn?() ?? 0 }
     private func activeSpace() -> Int { getActive?(connection()) ?? 0 }
 
-    /// Get all space IDs for the current display, in order
-    private func currentDisplaySpaces() -> (displayUUID: String, spaceIDs: [Int])? {
-        guard let copyFn = copySpaces else { return nil }
-        let conn = connection()
-        let current = activeSpace()
+    // MARK: - All Displays Info
 
-        guard let displays = copyFn(conn) as? [[String: Any]] else { return nil }
+    private struct DisplayInfo {
+        let uuid: String
+        let spaceIDs: [Int]
+    }
 
-        for display in displays {
-            guard let spaces = display["Spaces"] as? [[String: Any]] else { continue }
+    private func allDisplays() -> [DisplayInfo] {
+        guard let copyFn = copySpaces else { return [] }
+        guard let displays = copyFn(connection()) as? [[String: Any]] else { return [] }
+
+        return displays.compactMap { display in
+            guard let spaces = display["Spaces"] as? [[String: Any]] else { return nil }
             let ids = spaces.compactMap { $0["id64"] as? Int }
-            if ids.contains(current) {
-                let uuid = display["Display Identifier"] as? String ?? ""
-                return (uuid, ids)
+            let uuid = display["Display Identifier"] as? String ?? ""
+            guard !ids.isEmpty else { return nil }
+            return DisplayInfo(uuid: uuid, spaceIDs: ids)
+        }
+    }
+
+    /// Find which display the mouse cursor is on
+    private func displayUnderCursor() -> DisplayInfo? {
+        let mouseLocation = NSEvent.mouseLocation
+        let displays = allDisplays()
+
+        // Get all CGDisplay IDs and match to the one containing the cursor
+        var displayIDs = [CGDirectDisplayID](repeating: 0, count: 16)
+        var displayCount: UInt32 = 0
+        CGGetActiveDisplayList(16, &displayIDs, &displayCount)
+
+        for i in 0..<Int(displayCount) {
+            let bounds = CGDisplayBounds(displayIDs[i])
+            // NSEvent.mouseLocation uses bottom-left origin, CGDisplay uses top-left
+            let screenHeight = CGDisplayBounds(CGMainDisplayID()).height
+            let flippedY = screenHeight - mouseLocation.y
+
+            if bounds.contains(CGPoint(x: mouseLocation.x, y: flippedY)) {
+                // Found the display — now match it to a DisplayInfo by UUID
+                guard let cgUUID = CGDisplayCreateUUIDFromDisplayID(displayIDs[i])?.takeUnretainedValue() else { continue }
+                let uuidString = CFUUIDCreateString(nil, cgUUID) as String? ?? ""
+
+                // Match by UUID or by index
+                if let match = displays.first(where: { $0.uuid.contains(uuidString) || uuidString.contains($0.uuid) }) {
+                    return match
+                }
             }
         }
-        return nil
+
+        // Fallback: use the display containing the active space
+        let current = activeSpace()
+        return displays.first { $0.spaceIDs.contains(current) }
+    }
+
+    /// Get spaces for the display under the cursor (or active display as fallback)
+    private func currentDisplaySpaces() -> DisplayInfo? {
+        // First try display under cursor
+        if let underCursor = displayUnderCursor() {
+            return underCursor
+        }
+
+        // Fallback: display with active space
+        let current = activeSpace()
+        return allDisplays().first { $0.spaceIDs.contains(current) }
     }
 
     // MARK: - Switch Space
 
     func switchToNextSpace() {
-        guard let setFn = setSpace, let info = currentDisplaySpaces() else { return }
+        guard let setFn = setSpace, let display = currentDisplaySpaces() else { return }
         let current = activeSpace()
-        guard let idx = info.spaceIDs.firstIndex(of: current) else { return }
-        let nextIdx = (idx + 1) % info.spaceIDs.count
-        let nextSpace = info.spaceIDs[nextIdx]
-        setFn(connection(), info.displayUUID as CFString, nextSpace)
-        print("[SpaceSwitcher] Switched to next space: \(nextSpace)")
+
+        // Find current space on this display, or start from 0
+        let idx = display.spaceIDs.firstIndex(of: current) ?? 0
+        let nextIdx = (idx + 1) % display.spaceIDs.count
+        let nextSpace = display.spaceIDs[nextIdx]
+
+        setFn(connection(), display.uuid as CFString, nextSpace)
+        print("[SpaceSwitcher] Next → space \(nextSpace) on display \(display.uuid.prefix(8))")
     }
 
     func switchToPreviousSpace() {
-        guard let setFn = setSpace, let info = currentDisplaySpaces() else { return }
+        guard let setFn = setSpace, let display = currentDisplaySpaces() else { return }
         let current = activeSpace()
-        guard let idx = info.spaceIDs.firstIndex(of: current) else { return }
-        let prevIdx = idx > 0 ? idx - 1 : info.spaceIDs.count - 1
-        let prevSpace = info.spaceIDs[prevIdx]
-        setFn(connection(), info.displayUUID as CFString, prevSpace)
-        print("[SpaceSwitcher] Switched to previous space: \(prevSpace)")
+
+        let idx = display.spaceIDs.firstIndex(of: current) ?? 0
+        let prevIdx = idx > 0 ? idx - 1 : display.spaceIDs.count - 1
+        let prevSpace = display.spaceIDs[prevIdx]
+
+        setFn(connection(), display.uuid as CFString, prevSpace)
+        print("[SpaceSwitcher] Prev → space \(prevSpace) on display \(display.uuid.prefix(8))")
     }
 
     func switchToSpace(index: Int) {
-        guard let setFn = setSpace, let info = currentDisplaySpaces() else { return }
-        guard index >= 0 && index < info.spaceIDs.count else { return }
-        let targetSpace = info.spaceIDs[index]
-        setFn(connection(), info.displayUUID as CFString, targetSpace)
-        print("[SpaceSwitcher] Switched to space \(index): \(targetSpace)")
-    }
+        guard let setFn = setSpace, let display = currentDisplaySpaces() else { return }
+        guard index >= 0 && index < display.spaceIDs.count else { return }
 
-    var spaceCount: Int {
-        currentDisplaySpaces()?.spaceIDs.count ?? 0
-    }
-
-    var currentSpaceIndex: Int {
-        guard let info = currentDisplaySpaces() else { return 0 }
-        let current = activeSpace()
-        return info.spaceIDs.firstIndex(of: current) ?? 0
+        let targetSpace = display.spaceIDs[index]
+        setFn(connection(), display.uuid as CFString, targetSpace)
+        print("[SpaceSwitcher] Go to space \(index+1) → \(targetSpace)")
     }
 }
