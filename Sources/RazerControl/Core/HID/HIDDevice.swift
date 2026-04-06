@@ -20,6 +20,11 @@ final class RazerHIDDevice {
     /// The interface that last successfully sent a command (cached)
     private var workingInterface: IOHIDDevice?
 
+    /// Clear the cached working interface, forcing next send to retry all
+    func resetInterfaceCache() {
+        workingInterface = nil
+    }
+
     // MARK: - Init
 
     init?(ioDevice: IOHIDDevice) {

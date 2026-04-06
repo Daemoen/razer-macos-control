@@ -40,23 +40,27 @@ struct LightingView: View {
                             .foregroundColor(status == "Applied!" ? .razerSuccess : .razerWarning)
                     }
 
-                    // Reset button — sends off then static green
+                    // Reset: clear interface cache, undo macro mode, set green
                     Button {
                         if let kb = deviceManager.selectedKeyboard {
-                            // Try multiple approaches to reset
-                            let offOk = kb.setOff()
-                            print("[Lighting] Off: \(offOk)")
+                            // 1. Clear cached interface (may be stale after macro init)
+                            kb.hidDevice.resetInterfaceCache()
+
+                            // 2. Set device back to normal mode (undo driver/macro mode)
+                            let normalPkt = RazerPacket(
+                                transactionId: kb.info.transactionId,
+                                commandClass: .device,
+                                commandId: RazerCmd.deviceMode,
+                                args: [0x00, 0x00]  // normal mode
+                            )
+                            _ = kb.hidDevice.sendPacket(normalPkt)
+                            kb.macroKeysInitialized = false
                             usleep(200_000)
-                            let staticOk = kb.setStaticColor(r: 0, g: 255, b: 0)
-                            print("[Lighting] Static green: \(staticOk)")
-                            if !staticOk {
-                                // Try resetting device to normal mode first
-                                let pkt = RazerPacket.getDeviceMode(transactionId: kb.info.transactionId)
-                                _ = kb.hidDevice.sendPacket(pkt)
-                                usleep(200_000)
-                                _ = kb.setStaticColor(r: 0, g: 255, b: 0)
-                            }
-                            applyStatus = (offOk || staticOk) ? "Reset!" : "Reset failed"
+
+                            // 3. Set static green
+                            let ok = kb.setStaticColor(r: 0, g: 255, b: 0)
+                            applyStatus = ok ? "Reset!" : "Reset failed — try unplugging keyboard"
+                            print("[Lighting] Reset: normal mode + green = \(ok)")
                         }
                     } label: {
                         Text("Reset")
