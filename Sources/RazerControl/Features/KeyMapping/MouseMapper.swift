@@ -119,11 +119,12 @@ final class MouseMapper: ObservableObject {
         switch action {
         case .keystroke(let key):
             if let cgKey = KeyCodeMap.hidToCG[key] {
+                NSLog("[MouseMapper] Injecting keystroke: cgKey=%d isDown=%d", cgKey, isDown ? 1 : 0)
                 if let keyEvent = CGEvent(keyboardEventSource: nil, virtualKey: cgKey, keyDown: isDown) {
-                    keyEvent.post(tap: .cghidEventTap)
+                    keyEvent.post(tap: .cgSessionEventTap)
                 }
             }
-            return nil // suppress original mouse button
+            return nil
 
         case .shortcut(let modifiers, let key):
             if isDown, let cgKey = KeyCodeMap.hidToCG[key] {
@@ -133,13 +134,19 @@ final class MouseMapper: ObservableObject {
                 if modifiers & 0x04 != 0 { flags.insert(.maskAlternate) }
                 if modifiers & 0x08 != 0 { flags.insert(.maskControl) }
 
+                NSLog("[MouseMapper] Injecting shortcut: cgKey=%d flags=%d", cgKey, flags.rawValue)
+
+                // Post to cgSessionEventTap (not cghidEventTap) to avoid
+                // re-entering our own event tap
                 if let down = CGEvent(keyboardEventSource: nil, virtualKey: cgKey, keyDown: true) {
                     down.flags = flags
-                    down.post(tap: .cghidEventTap)
+                    down.post(tap: .cgSessionEventTap)
                 }
+                // Small delay between down and up
+                usleep(10_000)
                 if let up = CGEvent(keyboardEventSource: nil, virtualKey: cgKey, keyDown: false) {
                     up.flags = flags
-                    up.post(tap: .cghidEventTap)
+                    up.post(tap: .cgSessionEventTap)
                 }
             }
             return nil
