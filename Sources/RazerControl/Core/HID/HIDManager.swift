@@ -89,13 +89,31 @@ final class RazerHIDManager: ObservableObject {
     private func deviceConnected(_ ioDevice: IOHIDDevice) {
         guard let device = RazerHIDDevice(ioDevice: ioDevice) else { return }
 
-        // Avoid duplicates
-        if connectedDevices.contains(where: { $0.productId == device.productId && $0.serialNumber == device.serialNumber }) {
+        // Each Razer device exposes multiple USB interfaces (5-10).
+        // We only want the control interface that accepts feature reports.
+        // Diagnostic found: UsagePage 0x0001 (Generic Desktop), Usage 0x0000 works for keyboards.
+        // For mice, Usage 0x0002 (Mouse) works.
+        // Skip vendor-specific (0x0059) and duplicate keyboard interfaces.
+        let usagePage = IOHIDDeviceGetProperty(ioDevice, kIOHIDPrimaryUsagePageKey as CFString) as? Int ?? 0
+        let usage = IOHIDDeviceGetProperty(ioDevice, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
+
+        // Filter: only accept the control interface
+        // - UsagePage 0x0001, Usage 0x0000: keyboard control interface (confirmed working for BW V4 Pro)
+        // - UsagePage 0x0001, Usage 0x0002: mouse control interface
+        let isControlInterface = (usagePage == 0x0001 && usage == 0x0000) ||
+                                 (usagePage == 0x0001 && usage == 0x0002)
+
+        guard isControlInterface else {
+            return // skip non-control interfaces
+        }
+
+        // Avoid duplicates (same PID already added)
+        if connectedDevices.contains(where: { $0.productId == device.productId }) {
             return
         }
 
         connectedDevices.append(device)
-        print("[RazerHID] Connected: \(device.debugDescription)")
+        print("[RazerHID] Connected: \(device.debugDescription) [UP:\(String(format: "0x%04X", usagePage)) U:\(String(format: "0x%04X", usage))]")
     }
 
     private func deviceDisconnected(_ ioDevice: IOHIDDevice) {
