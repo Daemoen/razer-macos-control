@@ -26,3 +26,6 @@ dist/
 # Secrets (should never exist, but just in case)
 *.p12
 *.mobileprovision
+
+# Build artifacts
+dist/
