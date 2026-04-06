@@ -86,6 +86,7 @@ enum KeyAction: Codable {
     case launchApp(bundleId: String)         // Open application
     case mediaControl(String)                // play, pause, next, prev, mute
     case macroSequence([MacroStep])          // Sequence of key events
+    case spaceSwitch(String)                 // "next", "previous", "1", "2", etc.
     case disabled                            // Key does nothing
 }
 

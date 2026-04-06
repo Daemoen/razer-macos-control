@@ -181,6 +181,20 @@ final class MouseMapper: ObservableObject {
             }
             return nil
 
+        case .spaceSwitch(let direction):
+            if isDown {
+                NSLog("[MouseMapper] Space switch: %@", direction)
+                switch direction {
+                case "next": SpaceSwitcher.shared.switchToNextSpace()
+                case "previous": SpaceSwitcher.shared.switchToPreviousSpace()
+                default:
+                    if let idx = Int(direction) {
+                        SpaceSwitcher.shared.switchToSpace(index: idx - 1)
+                    }
+                }
+            }
+            return nil
+
         case .disabled:
             return nil
         }
