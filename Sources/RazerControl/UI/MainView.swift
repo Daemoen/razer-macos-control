@@ -21,6 +21,9 @@ enum AppTab: String, CaseIterable {
 struct MainView: View {
     @EnvironmentObject var deviceManager: DeviceManager
     @State private var selectedTab: AppTab = .keyboard
+    @State private var hasAccessibility = false
+
+    let accessibilityTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
         HStack(spacing: 0) {
@@ -108,16 +111,16 @@ struct MainView: View {
                         .padding(.horizontal, 16)
                 }
 
-                // Accessibility status for key remapping
+                // Accessibility status for key remapping (polled every 2s)
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(AXIsProcessTrusted() ? Color.razerSuccess : Color.razerWarning)
+                        .fill(hasAccessibility ? Color.razerSuccess : Color.razerWarning)
                         .frame(width: 5, height: 5)
-                    Text(AXIsProcessTrusted() ? "Accessibility: OK" : "Accessibility: needed for remapping")
+                    Text(hasAccessibility ? "Accessibility: OK" : "Accessibility: needed")
                         .font(RazerFont.caption(9))
-                        .foregroundColor(.razerTextTertiary)
+                        .foregroundColor(hasAccessibility ? .razerSuccess : .razerTextTertiary)
 
-                    if !AXIsProcessTrusted() {
+                    if !hasAccessibility {
                         Button("Grant") {
                             let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
                             AXIsProcessTrustedWithOptions(opts)
@@ -128,6 +131,12 @@ struct MainView: View {
                     }
                 }
                 .padding(.horizontal, 16)
+                .onReceive(accessibilityTimer) { _ in
+                    hasAccessibility = AXIsProcessTrusted()
+                }
+                .onAppear {
+                    hasAccessibility = AXIsProcessTrusted()
+                }
 
                 if let err = deviceManager.lastError {
                     Text(err)
