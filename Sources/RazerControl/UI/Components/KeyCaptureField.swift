@@ -3,12 +3,10 @@ import AppKit
 
 // MARK: - Key Capture Field
 //
-// A SwiftUI wrapper around an NSView that captures keyDown events.
-// This works WITHOUT Accessibility or Input Monitoring permissions
-// because it uses the normal NSView responder chain — any focused
-// view receives keyDown events natively.
-//
-// Usage: KeyCaptureField(onCapture: { keyCode, modifiers, name in ... })
+// Captures ANY key press including modifier combinations like Ctrl+1, Cmd+Shift+Z.
+// Uses performKeyEquivalent which fires BEFORE the system handles shortcuts,
+// plus keyDown as fallback for plain keys.
+// No Accessibility or Input Monitoring permissions needed.
 
 struct KeyCaptureField: NSViewRepresentable {
     let isActive: Bool
@@ -24,7 +22,6 @@ struct KeyCaptureField: NSViewRepresentable {
         nsView.onCapture = onCapture
         nsView.isActiveCapture = isActive
         if isActive {
-            // Ensure this view becomes first responder to receive key events
             DispatchQueue.main.async {
                 nsView.window?.makeFirstResponder(nsView)
             }
@@ -32,48 +29,50 @@ struct KeyCaptureField: NSViewRepresentable {
     }
 }
 
-// MARK: - NSView that captures keys
-
 class KeyCaptureNSView: NSView {
     var onCapture: ((UInt16, NSEvent.ModifierFlags, String) -> Void)?
     var isActiveCapture = false
 
     override var acceptsFirstResponder: Bool { true }
+    override func becomeFirstResponder() -> Bool { true }
 
+    // performKeyEquivalent fires BEFORE the system handles Ctrl+1, Cmd+Tab, etc.
+    // Return true to consume the event and prevent system handling.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard isActiveCapture else { return super.performKeyEquivalent(with: event) }
+        captureEvent(event)
+        return true // consume — don't let system handle Ctrl+1 etc.
+    }
+
+    // keyDown fires for plain keys without modifiers (a, b, F1, etc.)
     override func keyDown(with event: NSEvent) {
         guard isActiveCapture else {
             super.keyDown(with: event)
             return
         }
+        captureEvent(event)
+    }
 
+    private func captureEvent(_ event: NSEvent) {
         let keyCode = event.keyCode
-        let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        let rawMods = event.modifierFlags
 
-        // Build display name
         var parts: [String] = []
-        if modifiers.contains(.control) { parts.append("Ctrl") }
-        if modifiers.contains(.option) { parts.append("Opt") }
-        if modifiers.contains(.shift) { parts.append("Shift") }
-        if modifiers.contains(.command) { parts.append("Cmd") }
-        parts.append(KeyCodeMap.cgKeyName(keyCode))
+        if rawMods.contains(.control) { parts.append("Ctrl") }
+        if rawMods.contains(.option) { parts.append("Opt") }
+        if rawMods.contains(.shift) { parts.append("Shift") }
+        if rawMods.contains(.command) { parts.append("Cmd") }
 
-        let displayName = parts.joined(separator: " + ")
+        let keyName = KeyCodeMap.cgKeyName(keyCode)
+        parts.append(keyName)
 
-        onCapture?(keyCode, modifiers, displayName)
+        let modifiers = rawMods.intersection([.command, .shift, .option, .control])
+
+        print("[KeyCapture] keyCode=\(keyCode) mods=\(parts) name=\(keyName)")
+        onCapture?(keyCode, modifiers, parts.joined(separator: " + "))
     }
 
-    // Capture modifier-only presses (e.g., just Ctrl)
-    override func flagsChanged(with event: NSEvent) {
-        // Don't capture modifier-only events — wait for a real key
-        super.flagsChanged(with: event)
-    }
-
-    // Visual feedback
     override func draw(_ dirtyRect: NSRect) {
-        // Transparent — the SwiftUI overlay handles visuals
-    }
-
-    override func becomeFirstResponder() -> Bool {
-        true
+        // transparent
     }
 }

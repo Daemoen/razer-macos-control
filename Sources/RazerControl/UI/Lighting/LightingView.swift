@@ -40,10 +40,23 @@ struct LightingView: View {
                             .foregroundColor(status == "Applied!" ? .razerSuccess : .razerWarning)
                     }
 
-                    // Reset button (fixes stuck lights after macro init)
+                    // Reset button — sends off then static green
                     Button {
                         if let kb = deviceManager.selectedKeyboard {
-                            _ = kb.setStaticColor(r: 0, g: 255, b: 0) // reset to green
+                            // Try multiple approaches to reset
+                            let offOk = kb.setOff()
+                            print("[Lighting] Off: \(offOk)")
+                            usleep(200_000)
+                            let staticOk = kb.setStaticColor(r: 0, g: 255, b: 0)
+                            print("[Lighting] Static green: \(staticOk)")
+                            if !staticOk {
+                                // Try resetting device to normal mode first
+                                let pkt = RazerPacket.getDeviceMode(transactionId: kb.info.transactionId)
+                                _ = kb.hidDevice.sendPacket(pkt)
+                                usleep(200_000)
+                                _ = kb.setStaticColor(r: 0, g: 255, b: 0)
+                            }
+                            applyStatus = (offOk || staticOk) ? "Reset!" : "Reset failed"
                         }
                     } label: {
                         Text("Reset")
