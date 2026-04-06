@@ -125,7 +125,12 @@ class DeviceManager: ObservableObject {
     @Published var isRemappingActive = false
 
     let keyMapper = KeyMapper()
+    let mouseMapper = MouseMapper()
     let profileManager = ProfileManager()
+
+    /// Active mouse button mappings: button number → action
+    @Published var mouseMappings: [Int: KeyAction] = [:]
+    @Published var isMouseRemappingActive = false
 
     private let hidManager = RazerHIDManager()
     private var cancellables = Set<AnyCancellable>()
@@ -254,6 +259,33 @@ class DeviceManager: ObservableObject {
     func stopRemapping() {
         keyMapper.stop()
         isRemappingActive = false
+    }
+
+    // MARK: - Mouse Mapping
+
+    func setMouseMapping(button: Int, action: KeyAction) {
+        mouseMappings[button] = action
+        print("[DeviceManager] Mouse button \(button) → \(action)")
+
+        if !isMouseRemappingActive {
+            startMouseRemapping()
+        } else {
+            mouseMapper.updateMappings(mouseMappings)
+        }
+    }
+
+    func startMouseRemapping() {
+        guard !mouseMappings.isEmpty else { return }
+        mouseMapper.start(with: mouseMappings)
+        isMouseRemappingActive = mouseMapper.isActive
+        if let err = mouseMapper.error {
+            lastError = err
+        }
+    }
+
+    func stopMouseRemapping() {
+        mouseMapper.stop()
+        isMouseRemappingActive = false
     }
 
     /// Build a KeyAction from captured key info

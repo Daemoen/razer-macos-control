@@ -599,16 +599,70 @@ struct KeyCapView: View {
 
 // MARK: - Key Mapper Sheet
 
+// MARK: - Key Mapper Sheet (Manual Entry)
+//
+// Uses dropdown pickers instead of key capture to avoid macOS
+// intercepting system shortcuts (Ctrl+1 → Mission Control, etc.)
+
 struct KeyMapperSheet: View {
     let key: KeyInfo
     @Binding var isPresented: Bool
     @EnvironmentObject var deviceManager: DeviceManager
-    @State private var capturedKeyName: String = ""
-    @State private var capturedKeyCode: UInt16 = 0
-    @State private var capturedModifiers: NSEvent.ModifierFlags = []
-    @State private var isListening = false
-    @State private var applyFeedback: String?
+
+    @State private var useCtrl = false
+    @State private var useOpt = false
+    @State private var useShift = false
+    @State private var useCmd = false
+    @State private var selectedKey = "1"
     @State private var wantDisable = false
+    @State private var applyFeedback: String?
+
+    // Common target keys grouped for the picker
+    static let keyChoices: [(String, String)] = {
+        var choices: [(String, String)] = []
+        // Numbers
+        for i in 0...9 { choices.append(("\(i)", "\(i)")) }
+        // Letters
+        for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" { choices.append((String(c), String(c))) }
+        // Function keys
+        for i in 1...20 { choices.append(("F\(i)", "F\(i)")) }
+        // Special
+        choices.append(contentsOf: [
+            ("Space", "Space"), ("Return", "Return"), ("Tab", "Tab"),
+            ("Esc", "Esc"), ("Backspace", "Backspace"), ("Delete", "Delete"),
+            ("Up", "Up"), ("Down", "Down"), ("Left", "Left"), ("Right", "Right"),
+            ("Home", "Home"), ("End", "End"), ("Page Up", "Page Up"), ("Page Down", "Page Down"),
+        ])
+        return choices
+    }()
+
+    /// Map display name → CGKeyCode
+    static let nameToCGKey: [String: UInt16] = {
+        var map: [String: UInt16] = [:]
+        // Build from KeyCodeMap
+        for (hid, cg) in KeyCodeMap.hidToCG {
+            let name = KeyCodeMap.cgKeyName(cg)
+            map[name] = cg
+        }
+        // Add number keys by digit name
+        let digitCG: [String: UInt16] = [
+            "0": 0x1D, "1": 0x12, "2": 0x13, "3": 0x14, "4": 0x15,
+            "5": 0x17, "6": 0x16, "7": 0x1A, "8": 0x1C, "9": 0x19,
+        ]
+        for (name, cg) in digitCG { map[name] = cg }
+        return map
+    }()
+
+    var previewText: String {
+        if wantDisable { return "Disabled" }
+        var parts: [String] = []
+        if useCtrl { parts.append("Ctrl") }
+        if useOpt { parts.append("Opt") }
+        if useShift { parts.append("Shift") }
+        if useCmd { parts.append("Cmd") }
+        parts.append(selectedKey)
+        return parts.joined(separator: " + ")
+    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -616,7 +670,7 @@ struct KeyMapperSheet: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Remap Key").font(RazerFont.title(16)).foregroundColor(.razerTextPrimary)
-                    Text("Assign action to \(key.label.isEmpty ? "Space" : key.label)")
+                    Text("When \(key.label.isEmpty ? "Space" : key.label) is pressed, send:")
                         .font(RazerFont.body(12)).foregroundColor(.razerTextSecondary)
                 }
                 Spacer()
@@ -625,88 +679,61 @@ struct KeyMapperSheet: View {
                     .padding(.horizontal, 14).padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: 6).fill(Color.razerGreenSubtle)
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.razerGreen.opacity(0.4), lineWidth: 1)))
-                    .razerGlow(radius: 5)
             }.padding(.horizontal, 20).padding(.top, 20)
 
-            // Instructions
-            VStack(alignment: .leading, spacing: 8) {
-                Text("1. Click the capture area below to focus it")
-                    .font(RazerFont.body(12)).foregroundColor(.razerTextSecondary)
-                Text("2. Press the target key or shortcut (e.g. Ctrl+1)")
-                    .font(RazerFont.body(12)).foregroundColor(.razerTextSecondary)
-                Text("3. Click Apply")
-                    .font(RazerFont.body(12)).foregroundColor(.razerTextSecondary)
+            // Modifier checkboxes
+            VStack(alignment: .leading, spacing: 10) {
+                RazerSectionHeader("Modifiers")
+                HStack(spacing: 16) {
+                    Toggle("Ctrl", isOn: $useCtrl).toggleStyle(.checkbox)
+                    Toggle("Opt", isOn: $useOpt).toggleStyle(.checkbox)
+                    Toggle("Shift", isOn: $useShift).toggleStyle(.checkbox)
+                    Toggle("Cmd", isOn: $useCmd).toggleStyle(.checkbox)
+                }
+                .font(RazerFont.body(13))
+                .foregroundColor(.razerTextPrimary)
+                .disabled(wantDisable)
             }
             .padding(.horizontal, 20)
 
-            // Capture area — uses native NSView keyDown, no permissions needed
-            ZStack {
-                // Hidden NSView that captures keys when focused
-                KeyCaptureField(isActive: isListening) { keyCode, modifiers, name in
-                    capturedKeyCode = keyCode
-                    capturedModifiers = modifiers
-                    capturedKeyName = name
-                    isListening = false
-                }
-                .frame(height: 60)
-
-                // Visual overlay
-                HStack {
-                    if !capturedKeyName.isEmpty {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.razerSuccess)
-                        Text(capturedKeyName)
-                            .font(RazerFont.mono(16))
-                            .foregroundColor(.razerGreen)
-                    } else if isListening {
-                        Circle().fill(Color.razerError).frame(width: 8, height: 8)
-                        Text("Focused! Press any key...")
-                            .font(RazerFont.mono(13))
-                            .foregroundColor(.razerWarning)
-                    } else {
-                        Text("Click here to capture a key")
-                            .font(RazerFont.mono(13))
-                            .foregroundColor(.razerTextTertiary)
+            // Key picker
+            VStack(alignment: .leading, spacing: 8) {
+                RazerSectionHeader("Key")
+                Picker("", selection: $selectedKey) {
+                    ForEach(Self.keyChoices, id: \.0) { name, label in
+                        Text(label).tag(name)
                     }
-                    Spacer()
                 }
-                .padding(.horizontal, 14)
-                .allowsHitTesting(false) // let clicks pass through to NSView
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .disabled(wantDisable)
             }
-            .frame(height: 60)
+            .padding(.horizontal, 20)
+
+            // Preview
+            HStack {
+                Image(systemName: wantDisable ? "xmark.circle.fill" : "arrow.right.circle.fill")
+                    .foregroundColor(wantDisable ? .razerError : .razerGreen)
+                Text(previewText)
+                    .font(RazerFont.mono(16))
+                    .foregroundColor(wantDisable ? .razerError : .razerGreen)
+                Spacer()
+            }
+            .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color.razerBg)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(
-                                isListening ? Color.razerWarning.opacity(0.6) :
-                                    !capturedKeyName.isEmpty ? Color.razerGreen.opacity(0.5) :
-                                    Color.razerBorder,
-                                lineWidth: isListening ? 2 : 1
-                            )
-                    )
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.razerGreen.opacity(0.3), lineWidth: 1))
             )
-            .contentShape(Rectangle())
-            .onTapGesture {
-                isListening = true
-                wantDisable = false
-            }
             .padding(.horizontal, 20)
 
-            // Or disable
+            // Disable toggle
             HStack {
-                Toggle("Disable this key (no output)", isOn: $wantDisable)
+                Toggle("Disable this key", isOn: $wantDisable)
                     .font(RazerFont.body(12))
                     .foregroundColor(.razerTextSecondary)
                     .toggleStyle(.checkbox)
-                    .onChange(of: wantDisable) { newVal in
-                        if newVal {
-                            capturedKeyName = ""
-                            capturedKeyCode = 0
-                            isListening = false
-                        }
-                    }
                 Spacer()
             }
             .padding(.horizontal, 20)
@@ -716,7 +743,7 @@ struct KeyMapperSheet: View {
             if let feedback = applyFeedback {
                 Text(feedback)
                     .font(RazerFont.caption(11))
-                    .foregroundColor(feedback.contains("Mapped") || feedback.contains("Disabled") ? .razerSuccess : .razerWarning)
+                    .foregroundColor(.razerSuccess)
                     .padding(.horizontal, 20)
             }
 
@@ -726,40 +753,43 @@ struct KeyMapperSheet: View {
                 Spacer()
                 Button("Clear") {
                     deviceManager.clearKeyMapping(sourceHID: key.hidCode)
-                    capturedKeyName = ""
-                    capturedKeyCode = 0
-                    wantDisable = false
                     applyFeedback = "Mapping cleared"
                 }.buttonStyle(.razerSecondary)
 
-                Button("Apply") {
-                    applyMapping()
-                }.buttonStyle(.razerPrimary)
-                .disabled(capturedKeyName.isEmpty && !wantDisable)
+                Button("Apply") { applyMapping() }
+                    .buttonStyle(.razerPrimary)
             }.padding(.horizontal, 20).padding(.bottom, 20)
         }
-        .frame(width: 480, height: 440)
+        .frame(width: 440, height: 420)
         .background(Color.razerSurface)
     }
 
-    // MARK: - Apply
-
     private func applyMapping() {
-        let action: KeyAction
-
         if wantDisable {
-            action = .disabled
-        } else if capturedKeyCode == 0 {
-            applyFeedback = "Click the capture area and press a key first"
-            return
+            deviceManager.setKeyMapping(sourceHID: key.hidCode, action: .disabled)
+            applyFeedback = "Disabled!"
         } else {
-            action = deviceManager.makeAction(fromCGKeyCode: capturedKeyCode, modifiers: capturedModifiers)
-        }
+            guard let cgKey = Self.nameToCGKey[selectedKey] else {
+                applyFeedback = "Unknown key: \(selectedKey)"
+                return
+            }
 
-        deviceManager.setKeyMapping(sourceHID: key.hidCode, action: action)
-        applyFeedback = wantDisable
-            ? "Disabled! \(key.label) will produce no output"
-            : "Mapped! \(key.label) → \(capturedKeyName)"
+            // Find HID code for this CG key
+            let hidCode = KeyCodeMap.hidToCG.first(where: { $0.value == cgKey })?.key ?? 0
+
+            var modByte: UInt8 = 0
+            if useCmd { modByte |= 0x01 }
+            if useShift { modByte |= 0x02 }
+            if useOpt { modByte |= 0x04 }
+            if useCtrl { modByte |= 0x08 }
+
+            let action: KeyAction = modByte > 0
+                ? .shortcut(modifiers: modByte, key: hidCode)
+                : .keystroke(hidCode)
+
+            deviceManager.setKeyMapping(sourceHID: key.hidCode, action: action)
+            applyFeedback = "Mapped! \(key.label) → \(previewText)"
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             isPresented = false

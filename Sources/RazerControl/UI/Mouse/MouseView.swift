@@ -44,6 +44,7 @@ struct MouseView: View {
         .sheet(isPresented: $showMapperSheet) {
             if let button = selectedButton {
                 MouseMapperSheet(button: button, isPresented: $showMapperSheet)
+                    .environmentObject(deviceManager)
             }
         }
     }
@@ -396,6 +397,37 @@ struct VerticalMouseShape: InsettableShape {
 struct MouseMapperSheet: View {
     let button: MouseButton
     @Binding var isPresented: Bool
+    @EnvironmentObject var deviceManager: DeviceManager
+
+    @State private var useCtrl = false
+    @State private var useOpt = false
+    @State private var useShift = false
+    @State private var useCmd = false
+    @State private var selectedKey = "1"
+    @State private var wantDisable = false
+    @State private var applyFeedback: String?
+
+    var previewText: String {
+        if wantDisable { return "Disabled" }
+        var parts: [String] = []
+        if useCtrl { parts.append("Ctrl") }
+        if useOpt { parts.append("Opt") }
+        if useShift { parts.append("Shift") }
+        if useCmd { parts.append("Cmd") }
+        parts.append(selectedKey)
+        return parts.joined(separator: " + ")
+    }
+
+    /// Map mouse button to CGEvent button number (for MouseMapper)
+    var cgButtonNumber: Int {
+        switch button {
+        case .leftClick: return 0
+        case .rightClick: return 1
+        case .sideForward: return 4   // Button 5 = Forward
+        case .sideBack: return 3      // Button 4 = Back
+        case .dpiButton: return 2     // Middle / DPI
+        }
+    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -410,16 +442,96 @@ struct MouseMapperSheet: View {
             }
             .padding(.horizontal, 20).padding(.top, 20)
 
+            // Modifiers
+            VStack(alignment: .leading, spacing: 8) {
+                RazerSectionHeader("Send this shortcut:")
+                HStack(spacing: 16) {
+                    Toggle("Ctrl", isOn: $useCtrl).toggleStyle(.checkbox)
+                    Toggle("Opt", isOn: $useOpt).toggleStyle(.checkbox)
+                    Toggle("Shift", isOn: $useShift).toggleStyle(.checkbox)
+                    Toggle("Cmd", isOn: $useCmd).toggleStyle(.checkbox)
+                }
+                .font(RazerFont.body(13))
+                .foregroundColor(.razerTextPrimary)
+                .disabled(wantDisable)
+            }.padding(.horizontal, 20)
+
+            // Key
+            Picker("Key:", selection: $selectedKey) {
+                ForEach(KeyMapperSheet.keyChoices, id: \.0) { name, label in
+                    Text(label).tag(name)
+                }
+            }
+            .pickerStyle(.menu)
+            .disabled(wantDisable)
+            .padding(.horizontal, 20)
+
+            // Preview
+            HStack {
+                Image(systemName: wantDisable ? "xmark.circle.fill" : "arrow.right.circle.fill")
+                    .foregroundColor(wantDisable ? .razerError : .razerGreen)
+                Text("\(button.shortLabel) → \(previewText)")
+                    .font(RazerFont.mono(14))
+                    .foregroundColor(wantDisable ? .razerError : .razerGreen)
+                Spacer()
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.razerBg)
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.razerGreen.opacity(0.3), lineWidth: 1)))
+            .padding(.horizontal, 20)
+
+            Toggle("Disable this button", isOn: $wantDisable)
+                .font(RazerFont.body(12)).foregroundColor(.razerTextSecondary)
+                .toggleStyle(.checkbox)
+                .padding(.horizontal, 20)
+
             Spacer()
+
+            if let feedback = applyFeedback {
+                Text(feedback).font(RazerFont.caption(11)).foregroundColor(.razerSuccess)
+                    .padding(.horizontal, 20)
+            }
 
             HStack {
                 Button("Cancel") { isPresented = false }.buttonStyle(.razerSecondary)
                 Spacer()
-                Button("Apply") { isPresented = false }.buttonStyle(.razerPrimary)
-            }
-            .padding(.horizontal, 20).padding(.bottom, 20)
+                Button("Clear") {
+                    deviceManager.mouseMapper.updateMappings([:])
+                    applyFeedback = "Cleared"
+                }.buttonStyle(.razerSecondary)
+                Button("Apply") { applyMapping() }.buttonStyle(.razerPrimary)
+            }.padding(.horizontal, 20).padding(.bottom, 20)
         }
-        .frame(width: 400, height: 260)
+        .frame(width: 420, height: 420)
         .background(Color.razerSurface)
+    }
+
+    private func applyMapping() {
+        if wantDisable {
+            deviceManager.setMouseMapping(button: cgButtonNumber, action: .disabled)
+            applyFeedback = "Disabled!"
+        } else {
+            guard let cgKey = KeyMapperSheet.nameToCGKey[selectedKey] else {
+                applyFeedback = "Unknown key"
+                return
+            }
+            let hidCode = KeyCodeMap.hidToCG.first(where: { $0.value == cgKey })?.key ?? 0
+            var modByte: UInt8 = 0
+            if useCmd { modByte |= 0x01 }
+            if useShift { modByte |= 0x02 }
+            if useOpt { modByte |= 0x04 }
+            if useCtrl { modByte |= 0x08 }
+
+            let action: KeyAction = modByte > 0
+                ? .shortcut(modifiers: modByte, key: hidCode)
+                : .keystroke(hidCode)
+
+            deviceManager.setMouseMapping(button: cgButtonNumber, action: action)
+            applyFeedback = "Mapped! \(button.shortLabel) → \(previewText)"
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            isPresented = false
+        }
     }
 }
