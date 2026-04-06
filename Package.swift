@@ -18,6 +18,11 @@ let package = Package(
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("AppKit")
             ]
+        ),
+        .testTarget(
+            name: "RazerControlTests",
+            dependencies: ["RazerControl"],
+            path: "Tests/RazerControlTests"
         )
     ]
 )
