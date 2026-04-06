@@ -114,6 +114,7 @@ struct KeyboardView: View {
         .sheet(isPresented: $showMapperSheet) {
             if let key = selectedKey {
                 KeyMapperSheet(key: key, isPresented: $showMapperSheet)
+                    .environmentObject(deviceManager)
             }
         }
     }
@@ -123,10 +124,21 @@ struct KeyboardView: View {
     private var header: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("BlackWidow V4 Pro")
-                    .font(RazerFont.title(18))
-                    .foregroundColor(.razerTextPrimary)
-                Text("Click any key to remap. M6-M8 are on the physical left edge.")
+                HStack(spacing: 8) {
+                    Text("BlackWidow V4 Pro")
+                        .font(RazerFont.title(18))
+                        .foregroundColor(.razerTextPrimary)
+                    if deviceManager.isRemappingActive {
+                        HStack(spacing: 4) {
+                            Circle().fill(Color.razerSuccess).frame(width: 6, height: 6)
+                                .razerGlow(color: .razerSuccess, radius: 3, isActive: true)
+                            Text("\(deviceManager.keyMappings.count) remaps active")
+                                .font(RazerFont.caption(10))
+                                .foregroundColor(.razerSuccess)
+                        }
+                    }
+                }
+                Text("Click any key to remap it. Click Record, press the target key, then Apply.")
                     .font(RazerFont.body(12))
                     .foregroundColor(.razerTextSecondary)
             }
@@ -590,6 +602,7 @@ struct KeyCapView: View {
 struct KeyMapperSheet: View {
     let key: KeyInfo
     @Binding var isPresented: Bool
+    @EnvironmentObject var deviceManager: DeviceManager
     @State private var selectedAction = 0
     @State private var capturedKeyName: String = ""
     @State private var capturedKeyCode: UInt16 = 0
@@ -597,6 +610,7 @@ struct KeyMapperSheet: View {
     @State private var isListening = false
     @State private var eventMonitor: Any? = nil
     @State private var localMonitor: Any? = nil
+    @State private var applyFeedback: String?
 
     let actions = ["Keystroke", "Shortcut", "Launch App", "Media", "Macro", "Disable"]
 
@@ -689,16 +703,57 @@ struct KeyMapperSheet: View {
 
             Spacer()
 
+            if let feedback = applyFeedback {
+                Text(feedback)
+                    .font(RazerFont.caption(11))
+                    .foregroundColor(feedback.contains("Mapped") ? .razerSuccess : .razerWarning)
+                    .padding(.horizontal, 20)
+            }
+
             HStack {
                 Button("Cancel") { stopListening(); isPresented = false }.buttonStyle(.razerSecondary)
                 Spacer()
-                Button("Clear") { capturedKeyName = ""; capturedKeyCode = 0 }.buttonStyle(.razerSecondary)
-                Button("Apply") { stopListening(); isPresented = false }.buttonStyle(.razerPrimary)
+                Button("Clear") {
+                    deviceManager.clearKeyMapping(sourceHID: key.hidCode)
+                    capturedKeyName = ""
+                    capturedKeyCode = 0
+                    applyFeedback = "Mapping cleared"
+                }.buttonStyle(.razerSecondary)
+
+                Button("Apply") {
+                    stopListening()
+                    applyMapping()
+                }.buttonStyle(.razerPrimary)
+                .disabled(capturedKeyName.isEmpty && selectedAction != 5) // 5 = Disable
             }.padding(.horizontal, 20).padding(.bottom, 20)
         }
-        .frame(width: 480, height: 400)
+        .frame(width: 480, height: 420)
         .background(Color.razerSurface)
         .onDisappear { stopListening() }
+    }
+
+    // MARK: - Apply Mapping
+
+    private func applyMapping() {
+        let action: KeyAction
+
+        if selectedAction == 5 {
+            // Disable
+            action = .disabled
+        } else if capturedKeyCode == 0 {
+            applyFeedback = "No key captured — click Record first"
+            return
+        } else {
+            action = deviceManager.makeAction(fromCGKeyCode: capturedKeyCode, modifiers: capturedModifiers)
+        }
+
+        deviceManager.setKeyMapping(sourceHID: key.hidCode, action: action)
+        applyFeedback = "Mapped! \(key.label) → \(capturedKeyName.isEmpty ? "Disabled" : capturedKeyName)"
+
+        // Close after brief feedback
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            isPresented = false
+        }
     }
 
     // MARK: - Key Capture via NSEvent

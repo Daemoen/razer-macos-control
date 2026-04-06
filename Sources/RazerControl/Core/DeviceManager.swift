@@ -120,6 +120,13 @@ class DeviceManager: ObservableObject {
     @Published var isScanning = false
     @Published var lastError: String?
 
+    /// Active key mappings: HID keycode → action
+    @Published var keyMappings: [UInt8: KeyAction] = [:]
+    @Published var isRemappingActive = false
+
+    let keyMapper = KeyMapper()
+    let profileManager = ProfileManager()
+
     private let hidManager = RazerHIDManager()
     private var cancellables = Set<AnyCancellable>()
 
@@ -207,6 +214,67 @@ class DeviceManager: ObservableObject {
     }
 
     var hasDevices: Bool { !devices.isEmpty }
+
+    // MARK: - Key Mapping
+
+    /// Save a key mapping: source HID keycode → target action
+    func setKeyMapping(sourceHID: UInt8, action: KeyAction) {
+        keyMappings[sourceHID] = action
+        print("[DeviceManager] Mapped HID 0x\(String(format: "%02X", sourceHID)) → \(action)")
+
+        // Auto-start remapping if not already active
+        if !isRemappingActive {
+            startRemapping()
+        } else {
+            keyMapper.updateMappings(keyMappings)
+        }
+    }
+
+    /// Remove a key mapping
+    func clearKeyMapping(sourceHID: UInt8) {
+        keyMappings.removeValue(forKey: sourceHID)
+        if keyMappings.isEmpty {
+            stopRemapping()
+        } else {
+            keyMapper.updateMappings(keyMappings)
+        }
+    }
+
+    /// Start the CGEventTap to intercept and remap keys
+    func startRemapping() {
+        guard !keyMappings.isEmpty else { return }
+        keyMapper.start(with: keyMappings)
+        isRemappingActive = keyMapper.isActive
+        if let err = keyMapper.error {
+            lastError = err
+        }
+    }
+
+    /// Stop remapping
+    func stopRemapping() {
+        keyMapper.stop()
+        isRemappingActive = false
+    }
+
+    /// Build a KeyAction from captured key info
+    func makeAction(fromCGKeyCode cgKey: UInt16, modifiers: NSEvent.ModifierFlags) -> KeyAction {
+        // Find the HID code for this CG keycode
+        let hidCode = KeyCodeMap.hidToCG.first(where: { $0.value == cgKey })?.key ?? 0
+
+        let hasModifiers = modifiers.contains(.command) || modifiers.contains(.shift) ||
+                           modifiers.contains(.option) || modifiers.contains(.control)
+
+        if hasModifiers {
+            var modByte: UInt8 = 0
+            if modifiers.contains(.command) { modByte |= 0x01 }
+            if modifiers.contains(.shift) { modByte |= 0x02 }
+            if modifiers.contains(.option) { modByte |= 0x04 }
+            if modifiers.contains(.control) { modByte |= 0x08 }
+            return .shortcut(modifiers: modByte, key: hidCode)
+        } else {
+            return .keystroke(hidCode)
+        }
+    }
 }
 
 // MARK: - Color → RGB bytes
