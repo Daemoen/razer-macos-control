@@ -6,6 +6,7 @@ enum PreviewDevice: String, CaseIterable {
 }
 
 struct LightingView: View {
+    @EnvironmentObject var deviceManager: DeviceManager
     @State private var selectedEffect: LightingEffect = .static_
     @State private var primaryColor: Color = .razerGreen
     @State private var secondaryColor: Color = .blue
@@ -16,6 +17,7 @@ struct LightingView: View {
     @State private var hexColor: String = "#00FF00"
     @State private var animationPhase: Double = 0
     @State private var previewDevice: PreviewDevice = .keyboard
+    @State private var applyStatus: String?
 
     var body: some View {
         ScrollView {
@@ -34,7 +36,7 @@ struct LightingView: View {
 
                     // Apply button
                     Button {
-                        // Send to device
+                        applyEffectToDevice()
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "paperplane.fill")
@@ -431,6 +433,53 @@ struct LightingView: View {
     private func startAnimation() {
         Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
             animationPhase += 0.02
+        }
+    }
+
+    // MARK: - Apply to Real Device
+
+    private func applyEffectToDevice() {
+        // Pick the right device based on preview mode
+        let device: ConnectedDevice?
+        switch previewDevice {
+        case .keyboard: device = deviceManager.selectedKeyboard
+        case .mouse: device = deviceManager.selectedMouse
+        }
+
+        guard let device else {
+            applyStatus = "No \(previewDevice.rawValue.lowercased()) connected"
+            return
+        }
+
+        var success = false
+
+        // Apply brightness first
+        _ = device.setBrightness(brightness)
+
+        // Apply the selected effect
+        switch selectedEffect {
+        case .static_:
+            success = device.setStaticColor(primaryColor)
+        case .breathing:
+            success = device.setBreathingEffect(primaryColor)
+        case .wave:
+            success = device.setWaveEffect(direction: direction == 0 ? .leftToRight : .rightToLeft)
+        case .spectrum:
+            success = device.setSpectrumEffect()
+        case .off:
+            success = device.setOff()
+        case .reactive, .starlight:
+            // These need additional parameters — use static as fallback for now
+            success = device.setStaticColor(primaryColor)
+        }
+
+        applyStatus = success ? "Applied!" : "Failed to apply effect"
+
+        // Clear status after 2s
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            if applyStatus == "Applied!" || applyStatus == "Failed to apply effect" {
+                applyStatus = nil
+            }
         }
     }
 }

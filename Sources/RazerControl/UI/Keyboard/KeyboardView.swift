@@ -86,13 +86,18 @@ struct KeyInfo: Identifiable, Equatable {
 // MARK: - Keyboard View
 
 struct KeyboardView: View {
+    @EnvironmentObject var deviceManager: DeviceManager
     @State private var selectedKey: KeyInfo? = nil
     @State private var hoveredKey: KeyInfo? = nil
-    @State private var macroKeysInitialized = false
     @State private var testInput = ""
     @State private var showMapperSheet = false
     @State private var selectedLayout: KeyboardLayout = .qwertz_iso
     @State private var dialMode = "Volume"
+    @State private var macroInitError: String?
+
+    private var macroKeysInitialized: Bool {
+        deviceManager.selectedKeyboard?.macroKeysInitialized ?? false
+    }
 
     private let dialModes = ["Volume", "Brightness", "Zoom", "Scroll H", "Scroll V", "Brush Size", "Opacity", "Custom"]
     private let ks: CGFloat = 32   // base key unit size
@@ -134,7 +139,12 @@ struct KeyboardView: View {
             .frame(width: 160)
 
             Button {
-                withAnimation(.spring(response: 0.4)) { macroKeysInitialized.toggle() }
+                if let kb = deviceManager.selectedKeyboard {
+                    let success = kb.initMacroKeys()
+                    macroInitError = success ? nil : "Failed to init macro keys"
+                } else {
+                    macroInitError = "No keyboard connected"
+                }
             } label: {
                 HStack(spacing: 5) {
                     Circle()

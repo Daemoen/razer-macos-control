@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - Mouse View
 
 struct MouseView: View {
+    @EnvironmentObject var deviceManager: DeviceManager
     @State private var selectedButton: MouseButton? = nil
     @State private var hoveredButton: MouseButton? = nil
     @State private var dpiStage: Double = 1600
