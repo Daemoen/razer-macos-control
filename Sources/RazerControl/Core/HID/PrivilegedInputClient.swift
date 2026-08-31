@@ -57,9 +57,12 @@ final class PrivilegedInputClient: ObservableObject {
     }
 
     func install() {
-        guard let helper = Bundle.main.url(forAuxiliaryExecutable: "RazerControlInputHelper"),
-              let plist = Bundle.module.url(forResource: "com.razercontrol.input-helper", withExtension: "plist")
-        else {
+        let helper = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Library/LaunchServices/RazerControlInputHelper")
+        let plist = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/com.razercontrol.input-helper.plist")
+        guard FileManager.default.isExecutableFile(atPath: helper.path),
+              FileManager.default.fileExists(atPath: plist.path) else {
             error = "Input service is missing from this build"
             return
         }

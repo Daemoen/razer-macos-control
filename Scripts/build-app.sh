@@ -49,6 +49,7 @@ if [ ! -f "$HELPER_BINARY" ]; then
     HELPER_BINARY=".build/${CONFIG}/RazerControlInputHelper"
 fi
 cp "$HELPER_BINARY" "$APP_DIR/Contents/Library/LaunchServices/RazerControlInputHelper"
+cp "Sources/RazerControl/Resources/com.razercontrol.input-helper.plist" "$APP_DIR/Contents/Resources/"
 
 # Keep resources in the standard signed-app location. During local development,
 # SwiftPM's generated accessor can also fall back to the bundle in .build.
