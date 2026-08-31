@@ -2,6 +2,7 @@ import Foundation
 import IOKit.hid
 import RazerControlIPC
 import SystemConfiguration
+import Security
 
 final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProtocol {
     private var manager: IOHIDManager?
@@ -9,8 +10,13 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
 
     func run() -> Never {
         let listener = NSXPCListener(machServiceName: razerInputMachServiceName)
+        guard let requirement = containingAppRequirement() else {
+            NSLog("[RazerInputHelper] Unable to derive the containing app's signing requirement")
+            exit(EX_CONFIG)
+        }
+        listener.setConnectionCodeSigningRequirement(requirement)
         listener.delegate = self
-        listener.resume()
+        listener.activate()
         dispatchMain()
     }
 
@@ -21,7 +27,7 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
         guard connection.effectiveUserIdentifier == consoleUserID() else { return false }
         connection.exportedInterface = NSXPCInterface(with: RazerInputHelperProtocol.self)
         connection.exportedObject = self
-        connection.resume()
+        connection.activate()
         return true
     }
 
@@ -31,7 +37,7 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
         let client = NSXPCConnection(listenerEndpoint: endpoint)
         client.remoteObjectInterface = NSXPCInterface(with: RazerInputClientProtocol.self)
         client.invalidationHandler = { [weak self] in self?.clientConnection = nil }
-        client.resume()
+        client.activate()
         clientConnection = client
 
         if manager == nil, let failure = openOrbweaver() {
@@ -88,6 +94,25 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
         var gid: gid_t = 0
         _ = SCDynamicStoreCopyConsoleUser(nil, &uid, &gid)
         return uid
+    }
+
+    private func containingAppRequirement() -> String? {
+        var appURL = Bundle.main.executableURL
+        for _ in 0..<4 { appURL?.deleteLastPathComponent() }
+        guard let appURL else { return nil }
+        return designatedRequirement(at: appURL)
+    }
+
+    private func designatedRequirement(at url: URL) -> String? {
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &staticCode) == errSecSuccess,
+              let staticCode else { return nil }
+        var requirement: SecRequirement?
+        guard SecCodeCopyDesignatedRequirement(staticCode, [], &requirement) == errSecSuccess,
+              let requirement else { return nil }
+        var text: CFString?
+        guard SecRequirementCopyString(requirement, [], &text) == errSecSuccess else { return nil }
+        return text as String?
     }
 }
 

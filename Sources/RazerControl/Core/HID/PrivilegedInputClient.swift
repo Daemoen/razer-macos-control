@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import ServiceManagement
 import RazerControlIPC
+import Security
 
 @MainActor
 final class PrivilegedInputClient: NSObject, ObservableObject, NSXPCListenerDelegate, RazerInputClientProtocol {
@@ -13,6 +14,22 @@ final class PrivilegedInputClient: NSObject, ObservableObject, NSXPCListenerDele
     private let service = SMAppService.daemon(plistName: "com.razercontrol.input-helper.plist")
     private var connection: NSXPCConnection?
     private var callbackListener: NSXPCListener?
+    private var activationObserver: NSObjectProtocol?
+
+    override init() {
+        super.init()
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.refreshStatus()
+                if self.serviceStatus == .enabled, self.connection == nil { self.connect() }
+            }
+        }
+    }
 
     func start() {
         refreshStatus()
@@ -44,6 +61,17 @@ final class PrivilegedInputClient: NSObject, ObservableObject, NSXPCListenerDele
         }
     }
 
+    func uninstall() {
+        stop()
+        do {
+            try service.unregister()
+            error = nil
+        } catch {
+            self.error = "Native input removal failed: \(error.localizedDescription)"
+        }
+        refreshStatus()
+    }
+
     func refreshStatus() {
         serviceStatus = service.status
     }
@@ -52,12 +80,20 @@ final class PrivilegedInputClient: NSObject, ObservableObject, NSXPCListenerDele
         stop()
 
         let callback = NSXPCListener.anonymous()
+        guard let helperURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Library/LaunchServices/RazerControlInputHelper") as URL?,
+              let helperRequirement = designatedRequirement(at: helperURL) else {
+            error = "Unable to verify the bundled input service"
+            return
+        }
+        callback.setConnectionCodeSigningRequirement(helperRequirement)
         callback.delegate = self
-        callback.resume()
+        callback.activate()
         callbackListener = callback
 
         let connection = NSXPCConnection(machServiceName: razerInputMachServiceName,
                                          options: .privileged)
+        connection.setCodeSigningRequirement(helperRequirement)
         connection.remoteObjectInterface = NSXPCInterface(with: RazerInputHelperProtocol.self)
         connection.invalidationHandler = { [weak self] in
             Task { @MainActor in self?.isActive = false }
@@ -65,7 +101,7 @@ final class PrivilegedInputClient: NSObject, ObservableObject, NSXPCListenerDele
         connection.interruptionHandler = { [weak self] in
             Task { @MainActor in self?.isActive = false }
         }
-        connection.resume()
+        connection.activate()
         self.connection = connection
 
         let proxy = connection.remoteObjectProxyWithErrorHandler { [weak self] failure in
@@ -107,5 +143,17 @@ final class PrivilegedInputClient: NSObject, ObservableObject, NSXPCListenerDele
             error = message
             isActive = false
         }
+    }
+
+    private func designatedRequirement(at url: URL) -> String? {
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &staticCode) == errSecSuccess,
+              let staticCode else { return nil }
+        var requirement: SecRequirement?
+        guard SecCodeCopyDesignatedRequirement(staticCode, [], &requirement) == errSecSuccess,
+              let requirement else { return nil }
+        var text: CFString?
+        guard SecRequirementCopyString(requirement, [], &text) == errSecSuccess else { return nil }
+        return text as String?
     }
 }

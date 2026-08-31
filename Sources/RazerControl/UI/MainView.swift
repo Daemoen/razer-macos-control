@@ -149,6 +149,12 @@ struct MainView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                } else if deviceManager.isNativeInputActive {
+                    Button("Disable Native Input") {
+                        deviceManager.uninstallNativeInputService()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
 
                 if let err = deviceManager.lastError {

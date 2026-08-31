@@ -17,7 +17,8 @@ let package = Package(
             path: "Sources/RazerControlInputHelper",
             linkerSettings: [
                 .linkedFramework("IOKit"),
-                .linkedFramework("SystemConfiguration")
+                .linkedFramework("SystemConfiguration"),
+                .linkedFramework("Security")
             ]
         ),
         .executableTarget(
@@ -30,8 +31,9 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("IOKit"),
                 .linkedFramework("CoreGraphics"),
-                .linkedFramework("AppKit")
-                , .linkedFramework("ServiceManagement")
+                .linkedFramework("AppKit"),
+                .linkedFramework("ServiceManagement"),
+                .linkedFramework("Security")
             ]
         ),
         .testTarget(

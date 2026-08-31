@@ -271,6 +271,11 @@ class DeviceManager: ObservableObject {
         privilegedInput.install()
     }
 
+    func uninstallNativeInputService() {
+        nativeRemapper.releaseAll()
+        privilegedInput.uninstall()
+    }
+
     // MARK: - Key Mapping
 
     /// Save a key mapping: source HID keycode → target action
