@@ -104,7 +104,9 @@ final class PrivilegedInputClient: NSObject, ObservableObject, RazerInputClientP
 
         let proxy = connection.remoteObjectProxyWithErrorHandler { [weak self] failure in
             Task { @MainActor in
-                self?.error = "Native input connection failed: \(failure.localizedDescription)"
+                if self?.error == nil {
+                    self?.error = "Native input connection failed: \(failure.localizedDescription)"
+                }
                 self?.isActive = false
             }
         } as? RazerInputHelperProtocol

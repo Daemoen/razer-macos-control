@@ -8,6 +8,7 @@ import Darwin
 final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProtocol {
     private var manager: IOHIDManager?
     private var client: RazerInputClientProtocol?
+    private var serviceConnection: NSXPCConnection?
 
     func run() -> Never {
         let listener = NSXPCListener(machServiceName: razerInputMachServiceName)
@@ -36,6 +37,7 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
         connection.exportedInterface = helperInterface
         connection.exportedObject = self
         connection.invalidationHandler = { [weak self] in self?.shutdown() }
+        serviceConnection = connection
         connection.activate()
         return true
     }
@@ -102,6 +104,7 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
         }
         manager = nil
         client = nil
+        serviceConnection = nil
         exit(EXIT_SUCCESS)
     }
 
