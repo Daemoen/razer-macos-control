@@ -13,12 +13,16 @@ APP_DIR="dist/${APP_NAME}.app"
 
 echo "=== Building RazerControl ($CONFIG) ==="
 
-# Build
+# Build (SKIP_BUILD=1 repackages an already-built binary.)
 if [ "$CONFIG" = "release" ]; then
-    swift build -c release 2>&1
+    if [ "${SKIP_BUILD:-0}" != "1" ]; then
+        swift build --disable-sandbox -c release 2>&1
+    fi
     BINARY=".build/release/${APP_NAME}"
 else
-    swift build 2>&1
+    if [ "${SKIP_BUILD:-0}" != "1" ]; then
+        swift build --disable-sandbox 2>&1
+    fi
     BINARY=".build/debug/${APP_NAME}"
 fi
 
@@ -38,6 +42,13 @@ mkdir -p "$APP_DIR/Contents/Resources"
 
 # Copy binary
 cp "$BINARY" "$APP_DIR/Contents/MacOS/${APP_NAME}"
+
+# Keep resources in the standard signed-app location. During local development,
+# SwiftPM's generated accessor can also fall back to the bundle in .build.
+RESOURCE_BUNDLE=".build/${ARCH}-apple-macosx/${CONFIG}/${APP_NAME}_${APP_NAME}.bundle"
+if [ -d "$RESOURCE_BUNDLE" ]; then
+    cp -R "$RESOURCE_BUNDLE" "$APP_DIR/Contents/Resources/"
+fi
 
 # Create Info.plist
 cat > "$APP_DIR/Contents/Info.plist" << PLIST

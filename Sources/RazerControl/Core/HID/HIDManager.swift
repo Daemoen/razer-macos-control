@@ -1,114 +1,90 @@
 import Foundation
 import IOKit
-import IOKit.hid
 import Combine
 
-// MARK: - HID Manager
+// MARK: - Device Discovery
 
-/// Discovers and monitors Razer USB devices using IOKit HID Manager.
-/// Collects ALL USB interfaces per physical device. The HIDDevice then
-/// tries each interface when sending commands.
+/// Passively discovers Razer USB devices through the IORegistry.
+///
+/// This intentionally does not create or open an IOHIDManager. Karabiner's
+/// grabber must remain the sole owner of keyboard and pointing interfaces for
+/// device-specific remapping to work reliably.
 @MainActor
 final class RazerHIDManager: ObservableObject {
     @Published var connectedDevices: [RazerHIDDevice] = []
     @Published var lastError: String?
 
-    private var hidManager: IOHIDManager?
     private var isRunning = false
-
-    // MARK: - Start / Stop
 
     func start() {
         guard !isRunning else { return }
-
-        hidManager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        guard let manager = hidManager else {
-            lastError = "Failed to create HID Manager"
-            return
-        }
-
-        // Match only Razer devices (vendor ID 0x1532)
-        let matchDict: [String: Any] = [kIOHIDVendorIDKey: RazerUSB.vendorId]
-        IOHIDManagerSetDeviceMatching(manager, matchDict as CFDictionary)
-
-        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-
-        IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, device in
-            guard let context else { return }
-            let mgr = Unmanaged<RazerHIDManager>.fromOpaque(context).takeUnretainedValue()
-            Task { @MainActor in mgr.deviceConnected(device) }
-        }, selfPtr)
-
-        IOHIDManagerRegisterDeviceRemovalCallback(manager, { context, _, _, device in
-            guard let context else { return }
-            let mgr = Unmanaged<RazerHIDManager>.fromOpaque(context).takeUnretainedValue()
-            Task { @MainActor in mgr.deviceDisconnected(device) }
-        }, selfPtr)
-
-        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
-
-        let openResult = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-        if openResult != kIOReturnSuccess {
-            lastError = "Failed to open HID Manager: \(String(format: "0x%08X", openResult))"
-            return
-        }
-
         isRunning = true
-        print("[RazerHID] Manager started, scanning for devices...")
+        refresh()
     }
 
     func stop() {
-        guard isRunning, let manager = hidManager else { return }
-        for device in connectedDevices { device.close() }
         connectedDevices.removeAll()
-        IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
-        IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-        hidManager = nil
         isRunning = false
-        print("[RazerHID] Manager stopped")
     }
 
-    // MARK: - Device Events
+    /// Refresh is passive and is also used by the UI's Rescan command.
+    private func refresh() {
+        var iterator: io_iterator_t = 0
+        let result = IOServiceGetMatchingServices(
+            kIOMainPortDefault,
+            IOServiceMatching("IOUSBHostDevice"),
+            &iterator
+        )
 
-    private func deviceConnected(_ ioDevice: IOHIDDevice) {
-        guard let pid = IOHIDDeviceGetProperty(ioDevice, kIOHIDProductIDKey as CFString) as? Int else { return }
-        let usagePage = IOHIDDeviceGetProperty(ioDevice, kIOHIDPrimaryUsagePageKey as CFString) as? Int ?? 0
-        let usage = IOHIDDeviceGetProperty(ioDevice, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
-
-        // Skip vendor-specific interfaces (UsagePage 0x0059) — they don't accept feature reports
-        // Keep all Generic Desktop (0x0001) interfaces — we'll try them all when sending
-        guard usagePage == 0x0001 else { return }
-
-        // If we already have this PID, add the interface to existing device
-        if let existing = connectedDevices.first(where: { $0.productId == UInt16(pid) }) {
-            existing.addInterface(ioDevice)
-            let count = existing.interfaces.count
-            print("[RazerHID] +interface for \(existing.productName) [UP:\(String(format: "0x%04X", usagePage)) U:\(String(format: "0x%04X", usage))] (total: \(count))")
+        guard result == KERN_SUCCESS else {
+            lastError = "Failed to read the USB device registry"
             return
         }
+        defer { IOObjectRelease(iterator) }
 
-        // New device
-        guard let device = RazerHIDDevice(ioDevice: ioDevice) else { return }
-        connectedDevices.append(device)
-        print("[RazerHID] Connected: \(device.productName) [UP:\(String(format: "0x%04X", usagePage)) U:\(String(format: "0x%04X", usage))]")
-    }
-
-    private func deviceDisconnected(_ ioDevice: IOHIDDevice) {
-        guard let pid = IOHIDDeviceGetProperty(ioDevice, kIOHIDProductIDKey as CFString) as? Int else { return }
-
-        // Remove the interface from the device
-        if let device = connectedDevices.first(where: { $0.productId == UInt16(pid) }) {
-            device.interfaces.removeAll { $0 === ioDevice }
-
-            // If no interfaces left, remove the device entirely
-            if device.interfaces.isEmpty {
-                connectedDevices.removeAll { $0.productId == UInt16(pid) }
-                print("[RazerHID] Disconnected: \(device.productName)")
+        var discovered: [RazerHIDDevice] = []
+        var service = IOIteratorNext(iterator)
+        while service != 0 {
+            defer {
+                IOObjectRelease(service)
+                service = IOIteratorNext(iterator)
             }
+
+            guard propertyInt(service, "idVendor") == Int(RazerUSB.vendorId),
+                  let productId = propertyInt(service, "idProduct") else {
+                continue
+            }
+
+            let name = propertyString(service, "USB Product Name")
+                ?? propertyString(service, "kUSBProductString")
+                ?? "Razer Device"
+            let serial = propertyString(service, "USB Serial Number") ?? ""
+
+            discovered.append(RazerHIDDevice(
+                vendorId: RazerUSB.vendorId,
+                productId: UInt16(productId),
+                productName: name,
+                serialNumber: serial
+            ))
         }
+
+        connectedDevices = discovered
+        lastError = nil
+        print("[RazerUSB] Passively discovered \(discovered.count) Razer device(s)")
     }
 
-    // MARK: - Lookup
+    private func propertyInt(_ service: io_registry_entry_t, _ key: String) -> Int? {
+        guard let value = IORegistryEntryCreateCFProperty(
+            service, key as CFString, kCFAllocatorDefault, 0
+        )?.takeRetainedValue() else { return nil }
+        return (value as? NSNumber)?.intValue
+    }
+
+    private func propertyString(_ service: io_registry_entry_t, _ key: String) -> String? {
+        IORegistryEntryCreateCFProperty(
+            service, key as CFString, kCFAllocatorDefault, 0
+        )?.takeRetainedValue() as? String
+    }
 
     func device(withPID pid: UInt16) -> RazerHIDDevice? {
         connectedDevices.first { $0.productId == pid }
@@ -117,12 +93,6 @@ final class RazerHIDManager: ObservableObject {
     func devices(ofType type: RazerDeviceType) -> [RazerHIDDevice] {
         connectedDevices.filter { device in
             DeviceDatabase.shared.lookup(pid: device.productId)?.type == type
-        }
-    }
-
-    deinit {
-        if let manager = hidManager {
-            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         }
     }
 }

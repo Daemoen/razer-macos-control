@@ -21,9 +21,20 @@ enum AppTab: String, CaseIterable {
 struct MainView: View {
     @EnvironmentObject var deviceManager: DeviceManager
     @State private var selectedTab: AppTab = .keyboard
-    @State private var hasAccessibility = false
 
-    let accessibilityTimer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+    private var availableTabs: [AppTab] {
+        AppTab.allCases.filter { tab in
+            switch (deviceManager.selectedDevice?.type, tab) {
+            case (.keyboard?, .mouse), (.mouse?, .keyboard):
+                return false
+            case (.accessory?, .keyboard), (.accessory?, .mouse),
+                 (.headset?, .keyboard), (.headset?, .mouse):
+                return false
+            default:
+                return true
+            }
+        }
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -46,6 +57,15 @@ struct MainView: View {
         }
         .background(Color.razerBg)
         .ignoresSafeArea()
+        .onChange(of: deviceManager.selectedDevice?.id) { _ in
+            guard !availableTabs.contains(selectedTab) else { return }
+            switch deviceManager.selectedDevice?.type {
+            case .mouse: selectedTab = .mouse
+            case .keyboard: selectedTab = .keyboard
+            case .accessory, .headset: selectedTab = .lighting
+            case nil: selectedTab = .settings
+            }
+        }
     }
 
     // MARK: - Sidebar
@@ -81,7 +101,7 @@ struct MainView: View {
 
             // Tabs
             VStack(spacing: 2) {
-                ForEach(AppTab.allCases, id: \.self) { tab in
+                ForEach(availableTabs, id: \.self) { tab in
                     sidebarItem(tab)
                 }
             }
@@ -111,32 +131,16 @@ struct MainView: View {
                         .padding(.horizontal, 16)
                 }
 
-                // Accessibility status for key remapping (polled every 2s)
+                // Karabiner handles device-specific key and button remapping.
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(hasAccessibility ? Color.razerSuccess : Color.razerWarning)
+                        .fill(deviceManager.isKarabinerReady ? Color.razerSuccess : Color.razerWarning)
                         .frame(width: 5, height: 5)
-                    Text(hasAccessibility ? "Accessibility: OK" : "Accessibility: needed")
+                    Text(deviceManager.isKarabinerReady ? "Button mapping: Ready" : "Karabiner needed")
                         .font(RazerFont.caption(9))
-                        .foregroundColor(hasAccessibility ? .razerSuccess : .razerTextTertiary)
-
-                    if !hasAccessibility {
-                        Button("Grant") {
-                            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-                            AXIsProcessTrustedWithOptions(opts)
-                        }
-                        .font(RazerFont.caption(8))
-                        .foregroundColor(.razerGreen)
-                        .buttonStyle(.plain)
-                    }
+                        .foregroundColor(deviceManager.isKarabinerReady ? .razerSuccess : .razerTextTertiary)
                 }
                 .padding(.horizontal, 16)
-                .onReceive(accessibilityTimer) { _ in
-                    hasAccessibility = AXIsProcessTrusted()
-                }
-                .onAppear {
-                    hasAccessibility = AXIsProcessTrusted()
-                }
 
                 if let err = deviceManager.lastError {
                     Text(err)

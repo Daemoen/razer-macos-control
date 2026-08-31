@@ -56,8 +56,8 @@ enum KeyboardLayout: String, CaseIterable, Identifiable {
     var backslashKey: String {
         switch self {
         case .qwerty_ansi: return "\\"
-        case .qwertz_iso:  return ""   // ISO doesn't have backslash in this position
-        case .azerty_iso:  return ""
+        case .qwertz_iso:  return "#"
+        case .azerty_iso:  return "*"
         }
     }
 }
@@ -87,11 +87,13 @@ struct KeyInfo: Identifiable, Equatable {
 
 struct KeyboardView: View {
     @EnvironmentObject var deviceManager: DeviceManager
+    private let isLightingPreview: Bool
+    private let lightingPreviewColor: Color
     @State private var selectedKey: KeyInfo? = nil
     @State private var hoveredKey: KeyInfo? = nil
     @State private var testInput = ""
     @State private var showMapperSheet = false
-    @State private var selectedLayout: KeyboardLayout = .qwertz_iso
+    @State private var selectedLayout: KeyboardLayout = .qwerty_ansi
     @State private var dialMode = "Volume"
     @State private var macroInitError: String?
 
@@ -102,13 +104,39 @@ struct KeyboardView: View {
     private let dialModes = ["Volume", "Brightness", "Zoom", "Scroll H", "Scroll V", "Brush Size", "Opacity", "Custom"]
     private let ks: CGFloat = 32   // base key unit size
     private let sp: CGFloat = 2    // spacing
+    private let topRowHID: [UInt8] = [0x14, 0x1A, 0x08, 0x15, 0x17, 0x1C, 0x18, 0x0C, 0x12, 0x13, 0x2F, 0x30]
+    private let homeRowHID: [UInt8] = [0x04, 0x16, 0x07, 0x09, 0x0A, 0x0B, 0x0D, 0x0E, 0x0F, 0x33, 0x34]
+    private let bottomRowHID: [UInt8] = [0x1D, 0x1B, 0x06, 0x19, 0x05, 0x11, 0x10, 0x36, 0x37, 0x38]
+
+    init(isLightingPreview: Bool = false, lightingPreviewColor: Color = .white) {
+        self.isLightingPreview = isLightingPreview
+        self.lightingPreviewColor = lightingPreviewColor
+    }
+
+    private var isOrbweaver: Bool {
+        deviceManager.selectedKeyboard?.pid == 0x0207
+    }
+
+    private var isBlackWidowV3: Bool {
+        deviceManager.selectedKeyboard?.pid == 0x024E
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                header
-                fullKeyboard
-                bottomPanels
+        Group {
+            if isLightingPreview {
+                lightingLayoutPreview
+            } else {
+                ScrollView {
+                    VStack(spacing: 14) {
+                        header
+                        if isOrbweaver {
+                            orbweaverKeypad
+                        } else {
+                            fullKeyboard
+                            bottomPanels
+                        }
+                    }
+                }
             }
         }
         .sheet(isPresented: $showMapperSheet) {
@@ -119,13 +147,51 @@ struct KeyboardView: View {
         }
     }
 
+    /// Uses the exact mapping-screen geometry in the compact lighting card.
+    /// Keeping this here prevents the two device representations from drifting.
+    private var lightingLayoutPreview: some View {
+        GeometryReader { geometry in
+            let designSize = isOrbweaver
+                ? CGSize(width: 690, height: 535)
+                : CGSize(width: 920, height: 235)
+            let scale = min(
+                geometry.size.width / designSize.width,
+                geometry.size.height / designSize.height
+            )
+
+            let renderedSize = CGSize(
+                width: designSize.width * scale,
+                height: designSize.height * scale
+            )
+
+            ZStack(alignment: .topLeading) {
+                Group {
+                    if isOrbweaver {
+                        orbweaverKeypad
+                            .frame(width: designSize.width, height: designSize.height, alignment: .topLeading)
+                    } else {
+                        fullKeyboard
+                            .frame(width: designSize.width, height: designSize.height, alignment: .topLeading)
+                    }
+                }
+                .colorMultiply(lightingPreviewColor)
+                .allowsHitTesting(false)
+                .scaleEffect(scale, anchor: .topLeading)
+            }
+            // Collapse the layout footprint after scaling, then center that
+            // real rendered footprint rather than the original design canvas.
+            .frame(width: renderedSize.width, height: renderedSize.height, alignment: .topLeading)
+            .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+        }
+    }
+
     // MARK: - Header
 
     private var header: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
-                    Text("BlackWidow V4 Pro")
+                    Text(deviceManager.selectedKeyboard?.name ?? "Keyboard")
                         .font(RazerFont.title(18))
                         .foregroundColor(.razerTextPrimary)
                     if deviceManager.isRemappingActive {
@@ -144,33 +210,242 @@ struct KeyboardView: View {
             }
             Spacer()
 
-            Picker("", selection: $selectedLayout) {
-                ForEach(KeyboardLayout.allCases) { l in Text(l.label).tag(l) }
+            if !isOrbweaver {
+                Picker("", selection: $selectedLayout) {
+                    ForEach(KeyboardLayout.allCases) { l in Text(l.label).tag(l) }
+                }
+                .pickerStyle(.menu)
+                .frame(width: 160)
             }
-            .pickerStyle(.menu)
-            .frame(width: 160)
 
-            Button {
-                if let kb = deviceManager.selectedKeyboard {
-                    let success = kb.initMacroKeys()
-                    macroInitError = success ? nil : "Failed to init macro keys"
-                } else {
-                    macroInitError = "No keyboard connected"
+            if !isOrbweaver {
+                Button {
+                    if let kb = deviceManager.selectedKeyboard {
+                        let success = kb.initMacroKeys()
+                        macroInitError = success ? nil : "Failed to init macro keys"
+                    } else {
+                        macroInitError = "No keyboard connected"
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(macroKeysInitialized ? Color.razerSuccess : Color.razerTextTertiary)
+                            .frame(width: 7, height: 7)
+                            .razerGlow(color: .razerSuccess, radius: 3, isActive: macroKeysInitialized)
+                        Text(macroKeysInitialized ? "Macros Active" : "Init Macros")
+                            .font(RazerFont.caption(11))
+                    }
                 }
-            } label: {
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(macroKeysInitialized ? Color.razerSuccess : Color.razerTextTertiary)
-                        .frame(width: 7, height: 7)
-                        .razerGlow(color: .razerSuccess, radius: 3, isActive: macroKeysInitialized)
-                    Text(macroKeysInitialized ? "Macros Active" : "Init Macros")
-                        .font(RazerFont.caption(11))
-                }
+                .buttonStyle(.razerPrimary)
             }
-            .buttonStyle(.razerPrimary)
         }
         .padding(.horizontal, 20)
         .padding(.top, 16)
+    }
+
+    // MARK: - Orbweaver Chroma
+
+    /// Factory keyboard usages emitted by the Orbweaver. Karabiner scopes the
+    /// resulting mappings to the Orbweaver's vendor/product ID.
+    private var orbweaverKeypad: some View {
+        let rows: [[KeyInfo]] = [
+            [KeyInfo("01", 0x35), KeyInfo("02", 0x1E), KeyInfo("03", 0x1F), KeyInfo("04", 0x20), KeyInfo("05", 0x21)],
+            [KeyInfo("06", 0x2B), KeyInfo("07", 0x14), KeyInfo("08", 0x1A), KeyInfo("09", 0x08), KeyInfo("10", 0x15)],
+            [KeyInfo("11", 0x39), KeyInfo("12", 0x04), KeyInfo("13", 0x16), KeyInfo("14", 0x07), KeyInfo("15", 0x09)],
+            [KeyInfo("16", 0xE1), KeyInfo("17", 0x1D), KeyInfo("18", 0x1B), KeyInfo("19", 0x06), KeyInfo("20", 0x19)],
+        ]
+
+        return VStack(alignment: .leading, spacing: 14) {
+            RazerSectionHeader("Orbweaver Chroma", subtitle: "Click a physical control to assign its action")
+            GeometryReader { geometry in
+                let scale = min(1, geometry.size.width / 680)
+                ZStack(alignment: .topLeading) {
+                    OrbweaverWristRestShape()
+                        .fill(devicePlastic)
+                        .overlay(OrbweaverWristRestShape().stroke(Color.razerBorder, lineWidth: 1.2))
+                        .frame(width: 330, height: 118)
+                        .position(x: 250, y: 390)
+
+                    OrbweaverKeyDeckShape()
+                        .fill(devicePlastic)
+                        .overlay(OrbweaverKeyDeckShape().stroke(Color.razerBorder, lineWidth: 1.3))
+                        .shadow(color: .black.opacity(0.65), radius: 18, y: 10)
+                        .frame(width: 385, height: 278)
+                        .position(x: 250, y: 162)
+
+                    OrbweaverPalmRestShape()
+                        .fill(palmTexture)
+                        .overlay(OrbweaverPalmRestShape().stroke(Color.black.opacity(0.9), lineWidth: 2))
+                        .frame(width: 245, height: 122)
+                        .position(x: 235, y: 284)
+
+                    ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
+                        ForEach(Array(row.enumerated()), id: \.element.id) { columnIndex, key in
+                            orbweaverDeviceKey(key)
+                                .frame(width: 49, height: 45)
+                                .rotation3DEffect(.degrees(7), axis: (x: 1, y: 0, z: 0))
+                                .position(
+                                    x: 113 + CGFloat(columnIndex) * 58 + CGFloat(rowIndex) * 4,
+                                    y: 51 + CGFloat(rowIndex) * 52
+                                )
+                        }
+                    }
+
+                    OrbweaverThumbWingShape()
+                        .fill(devicePlastic)
+                        .overlay(OrbweaverThumbWingShape().stroke(Color.razerBorder, lineWidth: 1.3))
+                        .shadow(color: .black.opacity(0.55), radius: 12, y: 7)
+                        .frame(width: 190, height: 306)
+                        .position(x: 505, y: 235)
+
+                    thumbKey(KeyInfo("Thumb", 0xE2), symbol: "⌥")
+                        .frame(width: 58, height: 38)
+                        .rotationEffect(.degrees(-8))
+                        .position(x: 485, y: 123)
+
+                    orbweaverDPad
+                        .frame(width: 126, height: 126)
+                        .position(x: 510, y: 215)
+
+                    thumbKey(KeyInfo("Space", 0x2C), symbol: "Space")
+                        .frame(width: 70, height: 42)
+                        .rotationEffect(.degrees(-13))
+                        .position(x: 529, y: 338)
+
+                    HStack(spacing: 5) {
+                        ForEach(0..<3, id: \.self) { index in
+                            Circle()
+                                .fill(index == 0 ? Color.razerGreen : Color.black.opacity(0.8))
+                                .frame(width: 6, height: 6)
+                                .razerGlow(color: .razerGreen, radius: 3, isActive: index == 0)
+                        }
+                    }
+                    .position(x: 545, y: 82)
+                }
+                .frame(width: 650, height: 465)
+                .scaleEffect(scale, anchor: .topLeading)
+            }
+            .frame(height: 465)
+            Text("Factory sources: `/1/2/3/4, Tab/Q/W/E/R, Caps/A/S/D/F, Shift/Z/X/C/V; thumb pad arrows, Alt and Space")
+                .font(RazerFont.caption(10))
+                .foregroundColor(.razerTextTertiary)
+        }
+        .razerCard()
+        .padding(.horizontal, 20)
+    }
+
+    private var devicePlastic: LinearGradient {
+        LinearGradient(
+            colors: [Color(red: 0.12, green: 0.12, blue: 0.14), .black, Color(red: 0.08, green: 0.08, blue: 0.09)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var palmTexture: LinearGradient {
+        LinearGradient(
+            colors: [Color(red: 0.16, green: 0.16, blue: 0.17), Color(red: 0.06, green: 0.06, blue: 0.065)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private func orbweaverDeviceKey(_ key: KeyInfo) -> some View {
+        Button { selectedKey = key; showMapperSheet = true } label: {
+            VStack(spacing: 2) {
+                Text(key.label).font(.system(size: 10, weight: .bold, design: .rounded))
+                Text(orbweaverAssignment(for: key))
+                    .font(.system(size: 7, weight: .medium, design: .rounded))
+                    .foregroundColor(deviceManager.keyMappings[key.hidCode] == nil ? .razerTextTertiary : .razerGreen)
+                    .lineLimit(1).minimumScaleFactor(0.55)
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(deviceManager.pressedKeyboardUsages.contains(key.hidCode) ? Color.razerGreen.opacity(0.38) : (hoveredKey?.label == key.label ? Color.razerSurfaceHover : Color(red: 0.09, green: 0.09, blue: 0.11)))
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(selectedKey?.label == key.label || deviceManager.pressedKeyboardUsages.contains(key.hidCode) ? Color.razerGreen : Color.razerBorder, lineWidth: 1))
+                    .shadow(color: Color.razerGreen.opacity(deviceManager.pressedKeyboardUsages.contains(key.hidCode) ? 0.8 : (deviceManager.keyMappings[key.hidCode] == nil ? 0 : 0.35)), radius: 5)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hoveredKey = $0 ? key : nil }
+    }
+
+    private func thumbKey(_ key: KeyInfo, symbol: String) -> some View {
+        let isPressed = deviceManager.pressedKeyboardUsages.contains(key.hidCode)
+        return Button { selectedKey = key; showMapperSheet = true } label: {
+            VStack(spacing: 1) {
+                Text(symbol).font(.system(size: 9, weight: .bold))
+                Text(orbweaverAssignment(for: key))
+                    .font(.system(size: 7, weight: .medium))
+                    .foregroundColor(deviceManager.keyMappings[key.hidCode] == nil ? .razerTextTertiary : .razerGreen)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isPressed ? Color.razerGreen.opacity(0.38) : Color(red: 0.08, green: 0.08, blue: 0.095))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(isPressed ? Color.razerGreen : Color.razerBorder, lineWidth: 1))
+                    .shadow(color: Color.razerGreen.opacity(isPressed ? 0.8 : 0), radius: 5)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var orbweaverDPad: some View {
+        ZStack {
+            Circle().fill(Color.black.opacity(0.9)).overlay(Circle().strokeBorder(Color.razerBorder, lineWidth: 2)).shadow(color: .black.opacity(0.7), radius: 6, y: 4)
+            ForEach([
+                ("▲", UInt8(0x52), CGFloat(0), CGFloat(-38)),
+                ("◀", UInt8(0x50), CGFloat(-38), CGFloat(0)),
+                ("▶", UInt8(0x4F), CGFloat(38), CGFloat(0)),
+                ("▼", UInt8(0x51), CGFloat(0), CGFloat(38)),
+            ], id: \.1) { symbol, code, x, y in
+                let key = KeyInfo(symbol, code)
+                let isPressed = deviceManager.pressedKeyboardUsages.contains(code)
+                Button { selectedKey = key; showMapperSheet = true } label: {
+                    Text(symbol)
+                        .font(.system(size: 15, weight: .black))
+                        .foregroundColor(isPressed || deviceManager.keyMappings[code] != nil ? .razerGreen : .razerTextSecondary)
+                        .frame(width: 38, height: 38)
+                        .background(Circle().fill(Color.razerGreen.opacity(isPressed ? 0.30 : 0)))
+                        .shadow(color: Color.razerGreen.opacity(isPressed ? 0.9 : 0), radius: 5)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .offset(x: x, y: y)
+            }
+            Circle().fill(Color(red: 0.12, green: 0.12, blue: 0.13)).frame(width: 34, height: 34).overlay(Circle().strokeBorder(Color.black, lineWidth: 1))
+        }
+    }
+
+    private func orbweaverAssignment(for key: KeyInfo) -> String {
+        guard let action = deviceManager.keyMappings[key.hidCode] else { return "Default" }
+        switch action {
+        case .keystroke(let target):
+            return KeyCodeMap.hidKeyName(target)
+        case .shortcut(let modifiers, let target):
+            var parts: [String] = []
+            if modifiers & 0x08 != 0 { parts.append("Ctrl") }
+            if modifiers & 0x04 != 0 { parts.append("Opt") }
+            if modifiers & 0x02 != 0 { parts.append("Shift") }
+            if modifiers & 0x01 != 0 { parts.append("Cmd") }
+            parts.append(KeyCodeMap.hidKeyName(target))
+            return parts.joined(separator: "+")
+        case .spaceSwitch(let direction):
+            if direction == "next" { return "Desktop →" }
+            if direction == "previous" { return "← Desktop" }
+            return "Desktop \(direction)"
+        case .launchApp:
+            return "Launch App"
+        case .mediaControl(let control):
+            return control.capitalized
+        case .disabled:
+            return "Disabled"
+        case .macroSequence:
+            return "Macro"
+        }
     }
 
     // MARK: - Full Keyboard (BlackWidow V4 Pro layout)
@@ -178,28 +453,34 @@ struct KeyboardView: View {
     private var fullKeyboard: some View {
         HStack(alignment: .top, spacing: 0) {
             // === LEFT SECTION: Dial + M1-M5 macro column ===
-            VStack(spacing: 6) {
-                commandDial
-                    .padding(.bottom, 4)
-                ForEach(1...5, id: \.self) { i in
-                    kv(KeyInfo("M\(i)", UInt8(0x67 + i), macro: true))
+            if !isBlackWidowV3 {
+                VStack(spacing: 6) {
+                    commandDial
+                        .padding(.bottom, 4)
+                    ForEach(1...5, id: \.self) { i in
+                        kv(KeyInfo("M\(i)", UInt8(0x67 + i), macro: true))
+                    }
                 }
+                .padding(.trailing, 6)
             }
-            .padding(.trailing, 6)
 
             // === MAIN KEYBOARD AREA ===
-            VStack(spacing: sp) {
+            VStack(alignment: .leading, spacing: sp) {
                 // Function row
                 HStack(spacing: sp) {
                     k("Esc", 0x29)
-                    gap(12)
+                    blankKeys(1)
                     k("F1", 0x3A); k("F2", 0x3B); k("F3", 0x3C); k("F4", 0x3D)
-                    gap(6)
+                    gap(13.5)
                     k("F5", 0x3E); k("F6", 0x3F); k("F7", 0x40); k("F8", 0x41)
-                    gap(6)
+                    gap(13.5)
                     k("F9", 0x42); k("F10", 0x43); k("F11", 0x44); k("F12", 0x45)
                     gap(6)
                     k("Prt", 0x46); k("Scr", 0x47); k("Pse", 0x48)
+                    if isBlackWidowV3 {
+                        gap(8)
+                        blackWidowV3MediaCluster
+                    }
                 }
 
                 // Number row
@@ -207,7 +488,7 @@ struct KeyboardView: View {
                     ForEach(Array(selectedLayout.numberRowSymbols.enumerated()), id: \.offset) { i, lbl in
                         k(lbl, UInt8(i == 0 ? 0x35 : 0x1E + i - 1))
                     }
-                    k("Back", 0x2A, w: selectedLayout.isISO ? 1.5 : 2.0)
+                    k("Back", 0x2A, w: 2.0)
                     gap(6)
                     k("Ins", 0x49); k("Hm", 0x4A); k("PU", 0x4B)
                     gap(6)
@@ -218,56 +499,42 @@ struct KeyboardView: View {
                 HStack(spacing: sp) {
                     k("Tab", 0x2B, w: 1.5)
                     ForEach(Array(selectedLayout.topRow.enumerated()), id: \.offset) { i, lbl in
-                        k(lbl, UInt8(0x14 + i))
+                        k(lbl, topRowHID[i])
                     }
-                    if selectedLayout.isISO {
-                        // ISO: no backslash here, Enter spans 2 rows (shown as tall key in home row)
-                        // But we show a narrow placeholder for the row return area
-                        gap(2)
-                    } else {
-                        k("\\", 0x31, w: 1.5)
-                    }
+                    k(selectedLayout.backslashKey, 0x31, w: 1.5)
                     gap(6)
                     k("Del", 0x4C); k("End", 0x4D); k("PD", 0x4E)
                     gap(6)
-                    k("7", 0x5F); k("8", 0x60); k("9", 0x61); k("+", 0x57)
+                    k("7", 0x5F); k("8", 0x60); k("9", 0x61); tallK("+", 0x57)
                 }
 
                 // Home row
                 HStack(spacing: sp) {
                     k("Caps", 0x39, w: 1.75)
                     ForEach(Array(selectedLayout.homeRow.enumerated()), id: \.offset) { i, lbl in
-                        k(lbl, UInt8(0x04 + i))
+                        k(lbl, homeRowHID[i])
                     }
-                    if selectedLayout.isISO {
-                        k(selectedLayout.homeRowExtra, 0x32)
-                    }
-                    k("Enter", 0x28, w: selectedLayout.isISO ? 1.25 : 2.25)
+                    k("Enter", 0x28, w: 2.25)
                     gap(6)
                     // gap for nav cluster
-                    gap(ks * 3 + sp * 2)
+                    blankKeys(3)
                     gap(6)
                     k("4", 0x5C); k("5", 0x5D); k("6", 0x5E)
                     // + key spans from above
-                    gap(ks)
+                    blankKeys(1)
                 }
 
                 // Bottom alpha row
                 HStack(spacing: sp) {
-                    if selectedLayout.isISO {
-                        k("Shift", 0xE1, w: 1.25)
-                        k(selectedLayout.isoExtraKey, 0x64) // extra ISO key
-                    } else {
-                        k("Shift", 0xE1, w: 2.25)
-                    }
+                    k("Shift", 0xE1, w: 2.25)
                     ForEach(Array(selectedLayout.bottomRow.enumerated()), id: \.offset) { i, lbl in
-                        k(lbl, UInt8(0x1D + i))
+                        k(lbl, bottomRowHID[i])
                     }
-                    k("Shift", 0xE5, w: selectedLayout.isISO ? 1.75 : 2.75)
+                    k("Shift", 0xE5, w: 2.75)
                     gap(6)
-                    gap(ks); k("Up", 0x52); gap(ks)
+                    blankKeys(1); k("Up", 0x52); blankKeys(1)
                     gap(6)
-                    k("1", 0x59); k("2", 0x5A); k("3", 0x5B); k("Ent", 0x58)
+                    k("1", 0x59); k("2", 0x5A); k("3", 0x5B); tallK("Ent", 0x58)
                 }
 
                 // Space row
@@ -277,25 +544,28 @@ struct KeyboardView: View {
                     k("Alt", 0xE2, w: 1.25)
                     k("", 0x2C, w: 6.25)  // spacebar
                     k(selectedLayout.isISO ? "AltGr" : "Alt", 0xE6, w: 1.25)
-                    k("Win", 0xE7, w: 1.0)
-                    k("Fn", 0xFF, w: 1.0)
+                    k("Win", 0xE7, w: 1.25)
+                    k("Fn", 0xFF, w: 1.25)
                     k("Ctrl", 0xE4, w: 1.25)
                     gap(6)
                     k("Left", 0x50); k("Dn", 0x51); k("Rt", 0x4F)
                     gap(6)
                     k("0", 0x62, w: 2.0); k(".", 0x63)
                     // Enter key from numpad continues
-                    gap(ks)
+                    blankKeys(1)
                 }
             }
 
-            // === RIGHT SECTION: Roller + Media keys ===
-            VStack(spacing: 6) {
-                rollerWidget
-                    .padding(.bottom, 2)
-                mediaKeysColumn
+            // BlackWidow V3 has its roller and media control above the numpad;
+            // newer Pro models use the larger vertical control bank.
+            if !isBlackWidowV3 {
+                VStack(spacing: 6) {
+                    rollerWidget
+                        .padding(.bottom, 2)
+                    mediaKeysColumn
+                }
+                .padding(.leading, 8)
             }
-            .padding(.leading, 8)
         }
         .padding(16)
         .background(
@@ -427,6 +697,45 @@ struct KeyboardView: View {
         }
     }
 
+    private var blackWidowV3MediaCluster: some View {
+        HStack(spacing: 0) {
+            Button {} label: {
+                Image(systemName: "playpause.fill")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(.razerTextSecondary)
+                    .frame(width: 26, height: 26)
+                    .background(
+                        Circle()
+                            .fill(Color.razerSurfaceHover)
+                            .overlay(Circle().strokeBorder(Color.razerBorder, lineWidth: 1))
+                            .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Play / pause and media control")
+
+            Spacer(minLength: 0)
+
+            ZStack {
+                Capsule()
+                    .fill(Color(red: 0.075, green: 0.075, blue: 0.085))
+                    .frame(width: 3 * (ks - 3) + 2 * sp, height: 18)
+                    .overlay(Capsule().strokeBorder(Color.razerBorder, lineWidth: 1))
+                HStack(spacing: 3) {
+                    ForEach(0..<15, id: \.self) { _ in
+                        Rectangle()
+                            .fill(Color.razerTextTertiary.opacity(0.42))
+                            .frame(width: 1, height: 11)
+                    }
+                }
+            }
+            .help("Multi-function volume roller")
+        }
+        // Four numpad columns wide: button centered on NL/7/4/1 and the
+        // roller flush with the outer edge of -/+/Enter.
+        .frame(width: 4 * (ks - 3) + 3 * sp, alignment: .leading)
+    }
+
     // MARK: - Key Builders
 
     private func k(_ label: String, _ code: UInt8, w: CGFloat = 1.0) -> some View {
@@ -439,6 +748,7 @@ struct KeyboardView: View {
             key: info, size: ks,
             isSelected: selectedKey?.label == info.label && selectedKey?.hidCode == info.hidCode,
             isHovered: hoveredKey?.label == info.label && hoveredKey?.hidCode == info.hidCode,
+            isPressed: deviceManager.pressedKeyboardUsages.contains(info.hidCode),
             isActive: info.isMacro ? macroKeysInitialized : true,
             isMacro: info.isMacro,
             onTap: { selectedKey = info; showMapperSheet = true },
@@ -446,8 +756,26 @@ struct KeyboardView: View {
         )
     }
 
+    /// Draws a numpad key across this row and the row below while preserving
+    /// the fixed row height used to align the rest of the keyboard.
+    private func tallK(_ label: String, _ code: UInt8) -> some View {
+        let info = KeyInfo(label, code, h: 2.0)
+        return Color.clear
+            .frame(width: ks - 3, height: ks - 3)
+            .overlay(alignment: .top) {
+                kv(info)
+            }
+            .zIndex(2)
+    }
+
     private func gap(_ width: CGFloat) -> some View {
         Spacer().frame(width: width)
+    }
+
+    /// Empty positions measured in the same rendered grid as actual keycaps.
+    /// Using the nominal key size here shifts every cluster to the right.
+    private func blankKeys(_ count: Int) -> some View {
+        Color.clear.frame(width: CGFloat(count) * (ks - 3) + CGFloat(max(0, count - 1)) * sp)
     }
 
     // MARK: - Bottom Panels
@@ -455,16 +783,18 @@ struct KeyboardView: View {
     private var bottomPanels: some View {
         HStack(spacing: 12) {
             // M6-M8 side edge buttons
-            VStack(alignment: .leading, spacing: 6) {
-                RazerSectionHeader("Edge Keys", subtitle: "Left physical edge")
-                HStack(spacing: 4) {
-                    ForEach(6...8, id: \.self) { i in
-                        kv(KeyInfo("M\(i)", UInt8(0x6D + i), macro: true))
+            if !isBlackWidowV3 {
+                VStack(alignment: .leading, spacing: 6) {
+                    RazerSectionHeader("Edge Keys", subtitle: "Left physical edge")
+                    HStack(spacing: 4) {
+                        ForEach(6...8, id: \.self) { i in
+                            kv(KeyInfo("M\(i)", UInt8(0x6D + i), macro: true))
+                        }
                     }
                 }
+                .frame(width: 140)
+                .razerCard(padding: 12)
             }
-            .frame(width: 140)
-            .razerCard(padding: 12)
 
             // Test input
             VStack(alignment: .leading, spacing: 6) {
@@ -544,6 +874,86 @@ struct KeyboardView: View {
     }
 }
 
+// MARK: - Device silhouettes
+
+/// Tapered, asymmetric key deck based on the Orbweaver's adjustable upper body.
+private struct OrbweaverKeyDeckShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + 12, y: rect.minY + 5))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - 5, y: rect.minY + 26),
+            control: CGPoint(x: rect.midX, y: rect.minY - 5)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - 42))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.midX + 22, y: rect.maxY),
+            control: CGPoint(x: rect.maxX - 28, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + 9, y: rect.maxY - 28))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + 12, y: rect.minY + 5),
+            control: CGPoint(x: rect.minX - 3, y: rect.midY)
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// Broad lower pad separated from the key deck like the real swiveling palm rest.
+private struct OrbweaverPalmRestShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + 20, y: rect.minY + 4))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - 8, y: rect.minY + 18),
+            control: CGPoint(x: rect.midX, y: rect.minY - 8)
+        )
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - 34, y: rect.maxY - 4),
+            control: CGPoint(x: rect.maxX + 2, y: rect.midY + 20)
+        )
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + 7, y: rect.maxY - 18),
+            control: CGPoint(x: rect.midX - 12, y: rect.maxY + 5)
+        )
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + 20, y: rect.minY + 4),
+            control: CGPoint(x: rect.minX - 3, y: rect.midY)
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct OrbweaverWristRestShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + 34, y: rect.minY + 4))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - 18, y: rect.minY + 16), control: CGPoint(x: rect.midX, y: rect.minY - 5))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - 42, y: rect.maxY - 5), control: CGPoint(x: rect.maxX + 4, y: rect.midY))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + 12, y: rect.maxY - 20), control: CGPoint(x: rect.midX, y: rect.maxY + 5))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + 34, y: rect.minY + 4), control: CGPoint(x: rect.minX - 5, y: rect.midY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct OrbweaverThumbWingShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + 14, y: rect.minY + 34))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - 25, y: rect.minY + 4), control: CGPoint(x: rect.midX, y: rect.minY - 8))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - 2, y: rect.midY), control: CGPoint(x: rect.maxX + 4, y: rect.minY + 76))
+        path.addLine(to: CGPoint(x: rect.maxX - 35, y: rect.maxY - 4))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + 7, y: rect.maxY - 46), control: CGPoint(x: rect.midX, y: rect.maxY + 2))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + 84))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + 14, y: rect.minY + 34), control: CGPoint(x: rect.minX - 4, y: rect.minY + 52))
+        path.closeSubpath()
+        return path
+    }
+}
+
 // MARK: - Key Cap View
 
 struct KeyCapView: View {
@@ -551,6 +961,7 @@ struct KeyCapView: View {
     let size: CGFloat
     let isSelected: Bool
     let isHovered: Bool
+    let isPressed: Bool
     let isActive: Bool
     let isMacro: Bool
     let onTap: () -> Void
@@ -558,12 +969,14 @@ struct KeyCapView: View {
 
     private var bg: Color {
         if !isActive && isMacro { return Color.razerBg.opacity(0.3) }
+        if isPressed { return Color.razerGreen.opacity(0.38) }
         if isSelected { return Color.razerGreen.opacity(0.25) }
         if isHovered { return Color.razerSurfaceHover }
         return Color.razerSurfaceLight
     }
     private var border: Color {
         if !isActive && isMacro { return Color.razerBorder.opacity(0.3) }
+        if isPressed { return Color.razerGreen }
         if isSelected { return Color.razerGreen.opacity(0.8) }
         if isHovered { return Color.razerGreen.opacity(0.3) }
         return Color.razerBorder
@@ -581,8 +994,8 @@ struct KeyCapView: View {
                 .font(RazerFont.caption(key.width > 1.5 ? 8 : 9))
                 .foregroundColor(fg)
                 .frame(
-                    width: size * key.width + max(0, (key.width - 1) * 2) - 3,
-                    height: size * key.height - 3
+                    width: (size - 3) * key.width + max(0, (key.width - 1) * 2),
+                    height: (size - 3) * key.height + max(0, (key.height - 1) * 2)
                 )
                 .background(
                     RoundedRectangle(cornerRadius: 4)
@@ -590,7 +1003,7 @@ struct KeyCapView: View {
                         .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(border, lineWidth: isSelected ? 1.5 : 0.5))
                         .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
                 )
-                .razerGlow(color: .razerGreen, radius: 3, isActive: isSelected)
+                .razerGlow(color: .razerGreen, radius: 5, isActive: isSelected || isPressed)
         }
         .buttonStyle(.plain)
         .onHover(perform: onHover)
@@ -633,6 +1046,20 @@ struct KeyMapperSheet: View {
             ("Up", "Up"), ("Down", "Down"), ("Left", "Left"), ("Right", "Right"),
             ("Home", "Home"), ("End", "End"), ("Page Up", "Page Up"), ("Page Down", "Page Down"),
         ])
+        // Standalone modifiers (useful for mouse/thumb buttons held as keys)
+        choices.append(contentsOf: [
+            ("Control", "Left Control"), ("Option", "Left Option"),
+            ("Shift", "Left Shift"), ("Cmd", "Left Command"),
+            ("Right Control", "Right Control"), ("Right Option", "Right Option"),
+            ("Right Shift", "Right Shift"), ("Right Cmd", "Right Command"),
+        ])
+        // Punctuation and symbols
+        choices.append(contentsOf: [
+            ("`", "`  Backtick"), ("-", "-  Hyphen"), ("=", "=  Equal"),
+            ("[", "[  Left bracket"), ("]", "]  Right bracket"),
+            ("\\", "\\  Backslash"), (";", ";  Semicolon"), ("'", "'  Apostrophe"),
+            (",", ",  Comma"), (".", ".  Period"), ("/", "/  Slash"),
+        ])
         return choices
     }()
 
@@ -650,6 +1077,18 @@ struct KeyMapperSheet: View {
             "5": 0x17, "6": 0x16, "7": 0x1A, "8": 0x1C, "9": 0x19,
         ]
         for (name, cg) in digitCG { map[name] = cg }
+        return map
+    }()
+
+    /// Map picker names directly to HID usages. Going through CGKeyCode is
+    /// ambiguous on macOS (for example Print Screen and F13 share 0x69).
+    static let nameToHIDKey: [String: UInt8] = {
+        var map: [String: UInt8] = [:]
+        for (hid, cg) in KeyCodeMap.hidToCG {
+            map[KeyCodeMap.cgKeyName(cg)] = hid
+        }
+        for i in 1...12 { map["F\(i)"] = UInt8(0x39 + i) }
+        for i in 13...24 { map["F\(i)"] = UInt8(0x68 + i - 13) }
         return map
     }()
 
@@ -797,13 +1236,10 @@ struct KeyMapperSheet: View {
             deviceManager.setKeyMapping(sourceHID: key.hidCode, action: .disabled)
             applyFeedback = "Disabled!"
         } else {
-            guard let cgKey = Self.nameToCGKey[selectedKey] else {
+            guard let hidCode = Self.nameToHIDKey[selectedKey] else {
                 applyFeedback = "Unknown key: \(selectedKey)"
                 return
             }
-
-            // Find HID code for this CG key
-            let hidCode = KeyCodeMap.hidToCG.first(where: { $0.value == cgKey })?.key ?? 0
 
             var modByte: UInt8 = 0
             if useCmd { modByte |= 0x01 }

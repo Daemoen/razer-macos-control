@@ -216,28 +216,16 @@ struct SetupWizardView: View {
                 .font(RazerFont.title(20))
                 .foregroundColor(.razerTextPrimary)
 
-            Text("Key remapping needs macOS permissions.\nRGB lighting works without any permissions.")
+            Text("Karabiner-Elements handles device-specific button mapping.\nRazerControl configures it automatically.")
                 .font(RazerFont.body(13))
                 .foregroundColor(.razerTextSecondary)
                 .multilineTextAlignment(.center)
 
             VStack(spacing: 12) {
-                // Accessibility
-                permissionCard(
-                    icon: "hand.raised.fill",
-                    title: "Accessibility",
-                    description: "Required to inject remapped key events (CGEventPost)",
-                    status: permissions.accessibilityStatus,
-                    action: { permissions.requestAccessibility() }
-                )
-
-                // Input Monitoring
-                permissionCard(
-                    icon: "eye.fill",
-                    title: "Input Monitoring",
-                    description: "Required to capture keyboard/mouse input for remapping",
-                    status: permissions.inputMonitoringStatus,
-                    action: { permissions.requestInputMonitoring() }
+                statusRow(
+                    "Karabiner-Elements",
+                    value: deviceManager.isKarabinerReady ? "Ready" : "Open Karabiner once",
+                    ok: deviceManager.isKarabinerReady
                 )
 
                 // RGB (no permission needed)
@@ -329,13 +317,13 @@ struct SetupWizardView: View {
                 statusRow("Devices", value: "\(deviceManager.devices.count) connected",
                           ok: deviceManager.hasDevices)
                 statusRow("RGB Lighting", value: "Ready", ok: true)
-                statusRow("Key Remapping", value: permissions.canUseKeyMapping ? "Ready" : "Permissions needed",
-                          ok: permissions.canUseKeyMapping)
+                statusRow("Button Mapping", value: deviceManager.isKarabinerReady ? "Ready" : "Karabiner needed",
+                          ok: deviceManager.isKarabinerReady)
             }
             .padding(.horizontal, 60)
 
-            if !permissions.canUseKeyMapping {
-                Text("You can still use RGB lighting and DPI settings.\nGrant permissions later in Settings to enable key remapping.")
+            if !deviceManager.isKarabinerReady {
+                Text("Open Karabiner-Elements once, complete its macOS setup, then return here.")
                     .font(RazerFont.caption(11))
                     .foregroundColor(.razerTextTertiary)
                     .multilineTextAlignment(.center)

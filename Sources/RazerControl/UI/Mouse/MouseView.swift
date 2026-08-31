@@ -9,16 +9,27 @@ struct MouseView: View {
     @State private var dpiStage: Double = 1600
     @State private var showMapperSheet = false
 
+    private var isViperUltimate: Bool {
+        deviceManager.selectedMouse?.pid == 0x007B
+    }
+
+    private var visibleButtons: [MouseButton] {
+        isViperUltimate
+            ? [.leftClick, .rightClick, .wheelClick, .sideLeftForward, .sideLeftBack,
+               .sideRightForward, .sideRightBack]
+            : [.leftClick, .rightClick, .wheelClick, .sideLeftForward, .sideLeftBack]
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
                 // Header
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Pro Click V2 Vertical Edition")
+                        Text(deviceManager.selectedMouse?.name ?? "Mouse")
                             .font(RazerFont.title(18))
                             .foregroundColor(.razerTextPrimary)
-                        Text("Vertical ergonomic mouse (71.7\u{00B0}). Click buttons to remap.")
+                        Text("Choose a button below to assign a keystroke, shortcut, Desktop action, or disable it.")
                             .font(RazerFont.body(12))
                             .foregroundColor(.razerTextSecondary)
                     }
@@ -27,18 +38,23 @@ struct MouseView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
 
-                HStack(alignment: .top, spacing: 20) {
-                    // Left: 3D-ish vertical mouse visualization
-                    verticalMouseVisualization
-
-                    // Right: Mappings + DPI
+                if isViperUltimate {
                     VStack(spacing: 14) {
                         buttonMappingsPanel
-                        dpiPanel
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+                } else {
+                    HStack(alignment: .top, spacing: 20) {
+                        verticalMouseVisualization
+                        VStack(spacing: 14) {
+                            buttonMappingsPanel
+                            dpiPanel
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
             }
         }
         .sheet(isPresented: $showMapperSheet) {
@@ -77,8 +93,8 @@ struct MouseView: View {
 
                 // === Button overlays ===
 
-                // DPI button - top ridge
-                buttonHotspot(.dpiButton, x: 0, y: -105, w: 28, h: 16)
+                // Wheel click
+                buttonHotspot(.wheelClick, x: 0, y: -105, w: 28, h: 16)
 
                 // Left click - upper left of angled face
                 buttonHotspot(.leftClick, x: -35, y: -55, w: 55, h: 50)
@@ -107,10 +123,10 @@ struct MouseView: View {
                 .offset(y: -55)
 
                 // Side button 5 (Forward) - upper thumb area
-                buttonHotspot(.sideForward, x: -82, y: -15, w: 24, h: 28)
+                buttonHotspot(.sideLeftForward, x: -82, y: -15, w: 24, h: 28)
 
                 // Side button 4 (Back) - lower thumb area
-                buttonHotspot(.sideBack, x: -82, y: 25, w: 24, h: 28)
+                buttonHotspot(.sideLeftBack, x: -82, y: 25, w: 24, h: 28)
 
                 // Thumb grip texture indicator
                 VStack(spacing: 4) {
@@ -150,7 +166,7 @@ struct MouseView: View {
 
             // Button legend
             HStack(spacing: 16) {
-                ForEach(MouseButton.allCases) { btn in
+                ForEach(visibleButtons) { btn in
                     HStack(spacing: 4) {
                         Circle()
                             .fill(selectedButton == btn ? Color.razerGreen : Color.razerTextTertiary)
@@ -201,14 +217,14 @@ struct MouseView: View {
         VStack(alignment: .leading, spacing: 10) {
             RazerSectionHeader("Button Mappings", subtitle: "Current assignments")
 
-            ForEach(MouseButton.allCases) { button in
+                ForEach(visibleButtons) { button in
                 HStack {
                     Text(button.label)
                         .font(RazerFont.body(12))
                         .foregroundColor(.razerTextPrimary)
                         .frame(width: 110, alignment: .leading)
 
-                    Text(button.defaultAction)
+                    Text(currentAssignment(for: button))
                         .font(RazerFont.mono(11))
                         .foregroundColor(.razerTextSecondary)
 
@@ -231,6 +247,11 @@ struct MouseView: View {
             }
         }
         .razerCard()
+    }
+
+    private func currentAssignment(for button: MouseButton) -> String {
+        deviceManager.mouseMappings[button.mappingSource]?.displayName
+            ?? button.defaultAction
     }
 
     // MARK: - DPI Panel
@@ -286,7 +307,8 @@ struct MouseView: View {
 // MARK: - Mouse Button Model
 
 enum MouseButton: String, CaseIterable, Identifiable {
-    case leftClick, rightClick, sideForward, sideBack, dpiButton
+    case leftClick, rightClick, wheelClick
+    case sideLeftForward, sideLeftBack, sideRightForward, sideRightBack
 
     var id: String { rawValue }
 
@@ -294,9 +316,11 @@ enum MouseButton: String, CaseIterable, Identifiable {
         switch self {
         case .leftClick: return "Left Click"
         case .rightClick: return "Right Click"
-        case .sideForward: return "Btn 5 (Fwd)"
-        case .sideBack: return "Btn 4 (Back)"
-        case .dpiButton: return "DPI / AI"
+        case .sideLeftForward: return "Left Side Fwd"
+        case .sideLeftBack: return "Left Side Back"
+        case .sideRightForward: return "Right Side Fwd"
+        case .sideRightBack: return "Right Side Back"
+        case .wheelClick: return "Wheel Click"
         }
     }
 
@@ -304,9 +328,11 @@ enum MouseButton: String, CaseIterable, Identifiable {
         switch self {
         case .leftClick: return "L"
         case .rightClick: return "R"
-        case .sideForward: return "Fwd"
-        case .sideBack: return "Back"
-        case .dpiButton: return "DPI"
+        case .sideLeftForward: return "L Fwd"
+        case .sideLeftBack: return "L Back"
+        case .sideRightForward: return "R Fwd"
+        case .sideRightBack: return "R Back"
+        case .wheelClick: return "Wheel"
         }
     }
 
@@ -314,9 +340,52 @@ enum MouseButton: String, CaseIterable, Identifiable {
         switch self {
         case .leftClick: return "Click"
         case .rightClick: return "Right Click"
-        case .sideForward: return "Forward"
-        case .sideBack: return "Back"
-        case .dpiButton: return "DPI Cycle / AI"
+        case .sideLeftForward, .sideRightForward: return "Forward"
+        case .sideLeftBack, .sideRightBack: return "Back"
+        case .wheelClick: return "Middle Click"
+        }
+    }
+
+    /// Internal source used by KarabinerBackend. Values 1000/1001 represent
+    /// Viper side controls emitted through its keyboard interface.
+    var mappingSource: Int {
+        switch self {
+        case .leftClick: return 0
+        case .rightClick: return 1
+        case .wheelClick: return 2
+        case .sideLeftForward: return 1000
+        case .sideLeftBack: return 1001
+        case .sideRightForward: return 4
+        case .sideRightBack: return 3
+        }
+    }
+}
+
+private extension KeyAction {
+    var displayName: String {
+        switch self {
+        case .keystroke(let key):
+            return KeyCodeMap.hidKeyName(key)
+        case .shortcut(let modifiers, let key):
+            var parts: [String] = []
+            if modifiers & 0x08 != 0 { parts.append("Ctrl") }
+            if modifiers & 0x04 != 0 { parts.append("Opt") }
+            if modifiers & 0x02 != 0 { parts.append("Shift") }
+            if modifiers & 0x01 != 0 { parts.append("Cmd") }
+            parts.append(KeyCodeMap.hidKeyName(key))
+            return parts.joined(separator: " + ")
+        case .spaceSwitch(let direction):
+            if direction == "next" { return "Next Desktop →" }
+            if direction == "previous" { return "← Previous Desktop" }
+            return "Desktop \(direction)"
+        case .launchApp:
+            return "Launch Application"
+        case .mediaControl(let control):
+            return control.replacingOccurrences(of: "_", with: " ").capitalized
+        case .disabled:
+            return "Disabled"
+        case .macroSequence:
+            return "Macro"
         }
     }
 }
@@ -434,15 +503,13 @@ struct MouseMapperSheet: View {
         }
     }
 
-    /// Map mouse button to CGEvent button number (for MouseMapper)
     var cgButtonNumber: Int {
-        switch button {
-        case .leftClick: return 0
-        case .rightClick: return 1
-        case .sideForward: return 4   // Button 5 = Forward
-        case .sideBack: return 3      // Button 4 = Back
-        case .dpiButton: return 2     // Middle / DPI
-        }
+        button.mappingSource
+    }
+
+    private var currentAssignment: String {
+        deviceManager.mouseMappings[cgButtonNumber]?.displayName
+            ?? button.defaultAction
     }
 
     var body: some View {
@@ -451,7 +518,7 @@ struct MouseMapperSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Remap \(button.label)")
                         .font(RazerFont.title(16)).foregroundColor(.razerTextPrimary)
-                    Text("Current: \(button.defaultAction)")
+                    Text("Current: \(currentAssignment)")
                         .font(RazerFont.body(12)).foregroundColor(.razerTextSecondary)
                 }
                 Spacer()
@@ -531,8 +598,8 @@ struct MouseMapperSheet: View {
                 Button("Cancel") { isPresented = false }.buttonStyle(.razerSecondary)
                 Spacer()
                 Button("Clear") {
-                    deviceManager.mouseMapper.updateMappings([:])
-                    applyFeedback = "Cleared"
+                    deviceManager.clearMouseMapping(button: cgButtonNumber)
+                    applyFeedback = "Mapping cleared"
                 }.buttonStyle(.razerSecondary)
                 Button("Apply") { applyMapping() }.buttonStyle(.razerPrimary)
             }.padding(.horizontal, 20).padding(.bottom, 20)
@@ -578,11 +645,10 @@ struct MouseMapperSheet: View {
         case .spaceSwitch:
             action = .spaceSwitch(spaceDirection)
         case .shortcut:
-            guard let cgKey = KeyMapperSheet.nameToCGKey[selectedKey] else {
+            guard let hidCode = KeyMapperSheet.nameToHIDKey[selectedKey] else {
                 applyFeedback = "Unknown key"
                 return
             }
-            let hidCode = KeyCodeMap.hidToCG.first(where: { $0.value == cgKey })?.key ?? 0
             var modByte: UInt8 = 0
             if useCmd { modByte |= 0x01 }
             if useShift { modByte |= 0x02 }

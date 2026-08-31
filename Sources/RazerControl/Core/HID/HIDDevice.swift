@@ -20,6 +20,10 @@ final class RazerHIDDevice {
     /// The interface that last successfully sent a command (cached)
     private var workingInterface: IOHIDDevice?
 
+    /// Raw trace of the most recent command. Kept on the device so the UI can
+    /// expose protocol failures without requiring Console.app or a debugger.
+    private(set) var lastTransactionLog: [String] = []
+
     /// Clear the cached working interface, forcing next send to retry all
     func resetInterfaceCache() {
         workingInterface = nil
@@ -38,6 +42,15 @@ final class RazerHIDDevice {
         self.productName = IOHIDDeviceGetProperty(ioDevice, kIOHIDProductKey as CFString) as? String ?? "Unknown"
         self.serialNumber = IOHIDDeviceGetProperty(ioDevice, kIOHIDSerialNumberKey as CFString) as? String ?? ""
         self.interfaces = [ioDevice]
+    }
+
+    /// Metadata-only device used by passive IORegistry discovery. It has no
+    /// open HID interfaces, leaving input ownership entirely to Karabiner.
+    init(vendorId: UInt16, productId: UInt16, productName: String, serialNumber: String) {
+        self.vendorId = vendorId
+        self.productId = productId
+        self.productName = productName
+        self.serialNumber = serialNumber
     }
 
     /// Add another interface for this same physical device
@@ -64,6 +77,10 @@ final class RazerHIDDevice {
     /// Returns the response packet, or nil on failure.
     @discardableResult
     func sendPacket(_ packet: RazerPacket) -> RazerPacket? {
+        lastTransactionLog = [
+            "TX pid=\(String(format: "%04X", productId)) class=\(String(format: "%02X", packet.commandClass)) command=\(String(format: "%02X", packet.commandId))",
+            hexDump(packet.bytes)
+        ]
         // Try cached interface first
         if let working = workingInterface {
             if let response = trySendOnInterface(working, packet: packet) {
@@ -83,17 +100,99 @@ final class RazerHIDDevice {
             }
         }
 
+        // Devices discovered passively through IORegistry deliberately have no
+        // retained IOHIDDevice interfaces. Open only a suitable feature-report
+        // interface for the duration of this command so Karabiner can continue
+        // owning the input path.
+        if interfaces.isEmpty, let response = sendUsingTemporaryFeatureInterface(packet) {
+            return response
+        }
+
+        record("No feature interface accepted the command")
         print("[RazerHID] All \(interfaces.count) interfaces failed for \(productName)")
         return nil
+    }
+
+    private func sendUsingTemporaryFeatureInterface(_ packet: RazerPacket) -> RazerPacket? {
+        var iterator: io_iterator_t = 0
+        let matchingResult = IOServiceGetMatchingServices(
+            kIOMainPortDefault,
+            IOServiceMatching("IOHIDDevice"),
+            &iterator
+        )
+        guard matchingResult == KERN_SUCCESS else {
+            print("[RazerHID] Could not enumerate feature interfaces: \(ioResult(matchingResult))")
+            return nil
+        }
+        defer { IOObjectRelease(iterator) }
+
+        var service = IOIteratorNext(iterator)
+        while service != 0 {
+            defer {
+                IOObjectRelease(service)
+                service = IOIteratorNext(iterator)
+            }
+
+            guard registryInt(service, key: "VendorID") == Int(vendorId),
+                  registryInt(service, key: "ProductID") == Int(productId),
+                  registryInt(service, key: "MaxFeatureReportSize") ?? 0 >= RazerPacket.packetSize,
+                  let iface = IOHIDDeviceCreate(kCFAllocatorDefault, service) else {
+                continue
+            }
+
+            let openResult = IOHIDDeviceOpen(iface, IOOptionBits(kIOHIDOptionsTypeNone))
+            guard openResult == kIOReturnSuccess else {
+                let usage = registryInt(service, key: "PrimaryUsage") ?? 0
+                let usagePage = registryInt(service, key: "PrimaryUsagePage") ?? 0
+                record("OPEN up=\(String(format: "%04X", usagePage)) usage=\(String(format: "%04X", usage)) result=\(ioResult(openResult))")
+                continue
+            }
+
+            let response = trySendOnOpenInterface(iface, packet: packet)
+            IOHIDDeviceClose(iface, IOOptionBits(kIOHIDOptionsTypeNone))
+            if let response {
+                let usage = registryInt(service, key: "PrimaryUsage") ?? 0
+                let usagePage = registryInt(service, key: "PrimaryUsagePage") ?? 0
+                record("OPEN up=\(String(format: "%04X", usagePage)) usage=\(String(format: "%04X", usage)) result=success")
+                print("[RazerHID] Temporary feature interface worked: [UP:\(String(format: "0x%04X", usagePage)) U:\(String(format: "0x%04X", usage))]")
+                return response
+            }
+        }
+
+        return nil
+    }
+
+    private func registryInt(_ service: io_registry_entry_t, key: String) -> Int? {
+        let value = IORegistryEntryCreateCFProperty(
+            service, key as CFString, kCFAllocatorDefault, 0
+        )?.takeRetainedValue() as? NSNumber
+        return value?.intValue
+    }
+
+    private func ioResult(_ result: IOReturn) -> String {
+        String(format: "0x%08X", result)
+    }
+
+    private func hexDump(_ bytes: [UInt8]) -> String {
+        bytes.map { String(format: "%02X", $0) }.joined(separator: " ")
+    }
+
+    private func record(_ message: String) {
+        lastTransactionLog.append(message)
+        print("[RazerHID] \(message)")
     }
 
     private func trySendOnInterface(_ iface: IOHIDDevice, packet: RazerPacket) -> RazerPacket? {
         // Ensure open
         let openResult = IOHIDDeviceOpen(iface, IOOptionBits(kIOHIDOptionsTypeNone))
-        // kIOReturnSuccess or already-open is fine
-        guard openResult == kIOReturnSuccess || openResult == kIOReturnExclusiveAccess else {
+        guard openResult == kIOReturnSuccess else {
             return nil
         }
+
+        return trySendOnOpenInterface(iface, packet: packet)
+    }
+
+    private func trySendOnOpenInterface(_ iface: IOHIDDevice, packet: RazerPacket) -> RazerPacket? {
 
         let sendData = packet.bytes
         let sendResult = IOHIDDeviceSetReport(
@@ -105,8 +204,10 @@ final class RazerHIDDevice {
         )
 
         guard sendResult == kIOReturnSuccess else {
+            record("SET_REPORT result=\(ioResult(sendResult))")
             return nil
         }
+        record("SET_REPORT result=success")
 
         // Wait for the device to process
         usleep(RazerUSB.postWriteDelay)
@@ -124,15 +225,26 @@ final class RazerHIDDevice {
         )
 
         guard readResult == kIOReturnSuccess else {
+            record("GET_REPORT result=\(ioResult(readResult))")
             return nil
         }
+
+        record("RX length=\(reportLength) status=\(String(format: "%02X", response[0]))")
+        record(hexDump(Array(response.prefix(reportLength))))
 
         var responsePacket = RazerPacket()
         responsePacket.data = response
 
-        // Only count as success if device acknowledged (status 0x02)
-        // or at least didn't explicitly fail
-        if responsePacket.status == .failure {
+        // Razer accepts successful and busy (command applied) acknowledgements.
+        let explicitAck = responsePacket.status == .successful || responsePacket.status == .busy
+        guard explicitAck else {
+            record("DEVICE result=\(String(format: "%02X", responsePacket.status.rawValue))")
+            return nil
+        }
+
+        guard responsePacket.commandClass == packet.commandClass,
+              responsePacket.commandId == packet.commandId else {
+            record("DEVICE result=mismatched-response")
             return nil
         }
 

@@ -119,20 +119,21 @@ class DeviceManager: ObservableObject {
     @Published var selectedDevice: ConnectedDevice?
     @Published var isScanning = false
     @Published var lastError: String?
+    @Published var pressedKeyboardUsages: Set<UInt8> = []
 
     /// Active key mappings: HID keycode → action
     @Published var keyMappings: [UInt8: KeyAction] = [:]
     @Published var isRemappingActive = false
 
-    let keyMapper = KeyMapper()
-    let mouseMapper = MouseMapper()
     let profileManager = ProfileManager()
+    private let karabinerBackend = KarabinerBackend()
 
     /// Active mouse button mappings: button number → action
     @Published var mouseMappings: [Int: KeyAction] = [:]
     @Published var isMouseRemappingActive = false
 
     private let hidManager = RazerHIDManager()
+    private let inputMonitor = RazerHIDInputMonitor()
     private var cancellables = Set<AnyCancellable>()
 
     private static let keyMappingsKey = "SavedKeyMappings"
@@ -151,6 +152,10 @@ class DeviceManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$lastError)
 
+        inputMonitor.$pressedKeyboardUsages
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$pressedKeyboardUsages)
+
         // Load saved mappings
         loadMappings()
     }
@@ -163,6 +168,7 @@ class DeviceManager: ObservableObject {
     }
 
     func stopScanning() {
+        inputMonitor.stop()
         hidManager.stop()
         isScanning = false
     }
@@ -172,6 +178,9 @@ class DeviceManager: ObservableObject {
     private func syncDevices(_ hidDevices: [RazerHIDDevice]) {
         // Add new devices
         for hidDevice in hidDevices {
+            // Kraken Kitty exposes a separate USB audio function. Configuration
+            // belongs to its 0x0F19 Chroma controller, not the audio endpoint.
+            if hidDevice.productId == 0x0521 { continue }
             if !devices.contains(where: { $0.pid == hidDevice.productId }) {
                 if let info = DeviceDatabase.shared.lookup(pid: hidDevice.productId) {
                     let connected = ConnectedDevice(hidDevice: hidDevice, info: info)
@@ -212,6 +221,12 @@ class DeviceManager: ObservableObject {
         if let sel = selectedDevice, !devices.contains(where: { $0.id == sel.id }) {
             selectedDevice = devices.first
         }
+
+        if devices.contains(where: { $0.pid == 0x0207 }) {
+            inputMonitor.start(productId: 0x0207)
+        } else {
+            inputMonitor.stop()
+        }
     }
 
     // MARK: - Convenience
@@ -225,6 +240,7 @@ class DeviceManager: ObservableObject {
     }
 
     var hasDevices: Bool { !devices.isEmpty }
+    var isKarabinerReady: Bool { karabinerBackend.isConfigured }
 
     // MARK: - Key Mapping
 
@@ -233,49 +249,24 @@ class DeviceManager: ObservableObject {
         keyMappings[sourceHID] = action
         print("[DeviceManager] Mapped HID 0x\(String(format: "%02X", sourceHID)) → \(action)")
         saveMappings()
-
-        if !isRemappingActive {
-            startRemapping()
-        } else {
-            keyMapper.updateMappings(keyMappings)
-        }
+        syncKarabinerMappings()
     }
 
     func clearKeyMapping(sourceHID: UInt8) {
         keyMappings.removeValue(forKey: sourceHID)
         saveMappings()
-        if keyMappings.isEmpty {
-            stopRemapping()
-        } else {
-            keyMapper.updateMappings(keyMappings)
-        }
+        syncKarabinerMappings()
     }
 
-    /// Start the CGEventTap to intercept and remap keys
+    /// Publish the saved key mappings to Karabiner.
     func startRemapping() {
         guard !keyMappings.isEmpty else { return }
-
-        // Check and prompt for Accessibility before starting
-        if !AXIsProcessTrusted() {
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-            AXIsProcessTrustedWithOptions(options)
-            lastError = "Grant Accessibility to RazerControl in System Settings, then try again"
-            return
-        }
-
-        keyMapper.start(with: keyMappings)
-        isRemappingActive = keyMapper.isActive
-        if let err = keyMapper.error {
-            lastError = err
-        } else {
-            lastError = nil
-        }
+        syncKarabinerMappings()
     }
 
     /// Stop remapping
     func stopRemapping() {
-        keyMapper.stop()
-        isRemappingActive = false
+        syncKarabinerMappings()
     }
 
     // MARK: - Mouse Mapping
@@ -284,36 +275,39 @@ class DeviceManager: ObservableObject {
         mouseMappings[button] = action
         print("[DeviceManager] Mouse button \(button) → \(action)")
         saveMappings()
+        syncKarabinerMappings()
+    }
 
-        if !isMouseRemappingActive {
-            startMouseRemapping()
-        } else {
-            mouseMapper.updateMappings(mouseMappings)
-        }
+    func clearMouseMapping(button: Int) {
+        mouseMappings.removeValue(forKey: button)
+        saveMappings()
+        syncKarabinerMappings()
     }
 
     func startMouseRemapping() {
         guard !mouseMappings.isEmpty else { return }
-
-        if !AXIsProcessTrusted() {
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-            AXIsProcessTrustedWithOptions(options)
-            lastError = "Grant Accessibility to RazerControl in System Settings, then try again"
-            return
-        }
-
-        mouseMapper.start(with: mouseMappings)
-        isMouseRemappingActive = mouseMapper.isActive
-        if let err = mouseMapper.error {
-            lastError = err
-        } else {
-            lastError = nil
-        }
+        syncKarabinerMappings()
     }
 
     func stopMouseRemapping() {
-        mouseMapper.stop()
-        isMouseRemappingActive = false
+        syncKarabinerMappings()
+    }
+
+    private func syncKarabinerMappings() {
+        do {
+            try karabinerBackend.apply(
+                keyMappings: keyMappings,
+                mouseMappings: mouseMappings
+            )
+            isRemappingActive = !keyMappings.isEmpty
+            isMouseRemappingActive = !mouseMappings.isEmpty
+            lastError = nil
+        } catch {
+            isRemappingActive = false
+            isMouseRemappingActive = false
+            lastError = error.localizedDescription
+            print("[KarabinerBackend] \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Persistence

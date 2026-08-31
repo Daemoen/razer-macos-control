@@ -1,10 +1,5 @@
 import SwiftUI
 
-enum PreviewDevice: String, CaseIterable {
-    case keyboard = "Keyboard"
-    // Mouse RGB not supported on Pro Click V2 Vertical — removed for now
-}
-
 struct LightingView: View {
     @EnvironmentObject var deviceManager: DeviceManager
     @State private var selectedEffect: LightingEffect = .static_
@@ -16,8 +11,8 @@ struct LightingView: View {
     @State private var selectedZone: LightingZone = .all
     @State private var hexColor: String = "#00FF00"
     @State private var animationPhase: Double = 0
-    @State private var previewDevice: PreviewDevice = .keyboard
     @State private var applyStatus: String?
+    @State private var transactionLog: String?
 
     var body: some View {
         ScrollView {
@@ -28,7 +23,7 @@ struct LightingView: View {
                         Text("Lighting Effects")
                             .font(RazerFont.title(20))
                             .foregroundColor(.razerTextPrimary)
-                        Text("Customize RGB lighting for your device. No permissions required.")
+                        Text("Customize RGB lighting and inspect the device protocol.")
                             .font(RazerFont.body())
                             .foregroundColor(.razerTextSecondary)
                     }
@@ -40,8 +35,9 @@ struct LightingView: View {
                             .foregroundColor(status == "Applied!" ? .razerSuccess : .razerWarning)
                     }
 
-                    // Reset: clear interface cache, undo macro mode, set green
-                    Button {
+                    // Reset driver mode only applies to keyboard-class devices.
+                    if deviceManager.selectedDevice?.type == .keyboard {
+                        Button {
                         if let kb = deviceManager.selectedKeyboard {
                             // 1. Clear cached interface (may be stale after macro init)
                             kb.hidDevice.resetInterfaceCache()
@@ -62,10 +58,11 @@ struct LightingView: View {
                             applyStatus = ok ? "Reset!" : "Reset failed — try unplugging keyboard"
                             print("[Lighting] Reset: normal mode + green = \(ok)")
                         }
-                    } label: {
-                        Text("Reset")
+                        } label: {
+                            Text("Reset")
+                        }
+                        .buttonStyle(.razerSecondary)
                     }
-                    .buttonStyle(.razerSecondary)
 
                     // Apply button
                     Button {
@@ -81,6 +78,20 @@ struct LightingView: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 20)
+
+                if let transactionLog {
+                    DisclosureGroup("Last device transaction") {
+                        Text(transactionLog)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.razerTextSecondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 8)
+                    }
+                    .font(RazerFont.caption(11))
+                    .foregroundColor(.razerTextSecondary)
+                    .padding(.horizontal, 24)
+                }
 
                 HStack(alignment: .top, spacing: 20) {
                     // Left: Effect preview + selector
@@ -110,7 +121,7 @@ struct LightingView: View {
 
     private var effectPreview: some View {
         VStack(alignment: .leading, spacing: 8) {
-            RazerSectionHeader("Preview", subtitle: "Keyboard")
+            RazerSectionHeader("Preview", subtitle: deviceManager.selectedDevice?.name ?? "No device")
 
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
@@ -122,22 +133,152 @@ struct LightingView: View {
                     )
                     .shadow(color: primaryColor.opacity(0.3), radius: 20)
 
-                // Keyboard silhouette
-                VStack(spacing: 3) {
-                    ForEach(0..<5, id: \.self) { row in
-                        HStack(spacing: 3) {
-                            ForEach(0..<(14 - (row == 4 ? 5 : 0)), id: \.self) { col in
-                                RoundedRectangle(cornerRadius: 2)
-                                    .fill(keyColor(row: row, col: col).opacity(brightness))
-                                    .frame(width: row == 4 && col == 3 ? 80 : 28, height: 18)
-                            }
-                        }
-                    }
-                }
-                .padding(20)
+                selectedDevicePreview
+                    .padding(18)
             }
         }
         .razerCard()
+    }
+
+    @ViewBuilder
+    private var selectedDevicePreview: some View {
+        switch deviceManager.selectedDevice?.type {
+        case .headset:
+            headsetPreview
+        case .accessory:
+            dockPreview
+        case .mouse:
+            mousePreview
+        case .keyboard:
+            keyboardPreview
+        case nil:
+            Image(systemName: "lightbulb.slash")
+                .font(.system(size: 48))
+                .foregroundColor(.razerTextTertiary)
+        }
+    }
+
+    private var keyboardPreview: some View {
+        KeyboardView(
+            isLightingPreview: true,
+            lightingPreviewColor: keyColor(row: 2, col: 7).opacity(brightness)
+        )
+    }
+
+    private var headsetPreview: some View {
+        let glow = keyColor(row: 0, col: 3).opacity(brightness)
+        let shell = Color(red: 0.82, green: 0.55, blue: 0.64)
+        let cushion = Color(red: 0.12, green: 0.10, blue: 0.12)
+        return GeometryReader { proxy in
+            let scale = min(proxy.size.width / 390, proxy.size.height / 150)
+            ZStack {
+                // Padded headband and the two suspended earcup forks.
+                KrakenHeadbandShape()
+                    .stroke(shell, style: StrokeStyle(lineWidth: 15, lineCap: .round, lineJoin: .round))
+                    .overlay(KrakenHeadbandShape().stroke(.white.opacity(0.16), lineWidth: 2))
+                    .frame(width: 238, height: 126)
+                    .offset(y: 13)
+
+                HStack(spacing: 104) {
+                    KrakenCatEarShape()
+                        .fill(shell)
+                        .overlay(KrakenCatEarShape().stroke(glow, lineWidth: 4))
+                        .shadow(color: glow, radius: 10)
+                    KrakenCatEarShape()
+                        .fill(shell)
+                        .overlay(KrakenCatEarShape().stroke(glow, lineWidth: 4))
+                        .shadow(color: glow, radius: 10)
+                }
+                .frame(width: 202, height: 47)
+                .offset(y: -47)
+
+                HStack(spacing: 112) {
+                    ForEach(0..<2, id: \.self) { side in
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 24)
+                                .fill(shell)
+                                .frame(width: 68, height: 91)
+                                .overlay(RoundedRectangle(cornerRadius: 24).stroke(.white.opacity(0.18), lineWidth: 2))
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(cushion)
+                                .frame(width: 57, height: 80)
+                            RazerLogoMark()
+                                .stroke(glow, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                                .frame(width: 34, height: 34)
+                                .shadow(color: glow, radius: 9)
+                        }
+                    }
+                }
+                .offset(y: 29)
+            }
+            .frame(width: 390, height: 150)
+            .scaleEffect(scale)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var dockPreview: some View {
+        let glow = keyColor(row: 1, col: 7).opacity(brightness)
+        return ZStack {
+            DockPedestalShape()
+                .fill(LinearGradient(colors: [Color.razerSurfaceHover, .black], startPoint: .top, endPoint: .bottom))
+                .frame(width: 92, height: 112)
+                .overlay(DockPedestalShape().stroke(Color.razerBorder, lineWidth: 2))
+                .offset(y: -5)
+            Capsule()
+                .stroke(glow, lineWidth: 7)
+                .frame(width: 128, height: 34)
+                .shadow(color: glow, radius: 14)
+                .offset(y: 55)
+            HStack(spacing: 9) {
+                Circle().fill(Color.razerTextTertiary).frame(width: 7, height: 7)
+                Circle().fill(Color.razerTextTertiary).frame(width: 7, height: 7)
+            }
+            .offset(y: -37)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var mousePreview: some View {
+        let glow = keyColor(row: 2, col: 5).opacity(brightness)
+        return ZStack {
+            ViperMouseShape()
+                .fill(LinearGradient(colors: [Color(red: 0.15, green: 0.16, blue: 0.18), .black], startPoint: .top, endPoint: .bottom))
+                .frame(width: 124, height: 136)
+                .overlay(ViperMouseShape().stroke(Color.razerBorder, lineWidth: 2))
+
+            // Viper Ultimate's separated primary buttons and center channel.
+            ViperButtonSeamShape()
+                .stroke(Color.black.opacity(0.9), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .frame(width: 114, height: 68)
+                .offset(y: -32)
+            Capsule()
+                .fill(Color.black)
+                .frame(width: 16, height: 39)
+                .overlay(
+                    VStack(spacing: 3) {
+                        ForEach(0..<6, id: \.self) { _ in
+                            Capsule().fill(Color.razerTextTertiary.opacity(0.7)).frame(width: 10, height: 2)
+                        }
+                    }
+                )
+                .offset(y: -37)
+
+            // Symmetrical textured side grips are a defining Viper feature.
+            HStack(spacing: 96) {
+                ViperGripShape().fill(Color.black.opacity(0.85))
+                ViperGripShape().fill(Color.black.opacity(0.85)).scaleEffect(x: -1, y: 1)
+            }
+            .frame(width: 124, height: 61)
+            .offset(y: 19)
+
+            RazerLogoMark()
+                .stroke(glow, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                .frame(width: 32, height: 32)
+                .shadow(color: glow, radius: 10)
+                .offset(y: 36)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var previewGradient: some ShapeStyle {
@@ -180,7 +321,7 @@ struct LightingView: View {
             RazerSectionHeader("Effect")
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                ForEach(LightingEffect.allCases) { effect in
+                ForEach(supportedEffects) { effect in
                     Button {
                         withAnimation(.easeOut(duration: 0.2)) {
                             selectedEffect = effect
@@ -218,6 +359,23 @@ struct LightingView: View {
             }
         }
         .razerCard()
+    }
+
+    private var supportedEffects: [LightingEffect] {
+        guard let features = deviceManager.selectedDevice?.info.features else {
+            return [.off]
+        }
+        return LightingEffect.allCases.filter { effect in
+            switch effect {
+            case .static_: return features.contains(.staticEffect)
+            case .breathing: return features.contains(.breathingEffect)
+            case .wave: return features.contains(.waveEffect)
+            case .spectrum: return features.contains(.spectrumEffect)
+            case .reactive: return features.contains(.reactiveEffect)
+            case .starlight: return features.contains(.starlightEffect)
+            case .off: return true
+            }
+        }
     }
 
     private func effectThumbnailGradient(_ effect: LightingEffect) -> some ShapeStyle {
@@ -418,8 +576,8 @@ struct LightingView: View {
     // MARK: - Apply to Real Device
 
     private func applyEffectToDevice() {
-        guard let device = deviceManager.selectedKeyboard else {
-            applyStatus = "No keyboard connected"
+        guard let device = deviceManager.selectedDevice else {
+            applyStatus = "No lighting device selected"
             return
         }
 
@@ -450,10 +608,19 @@ struct LightingView: View {
             success = device.setStaticColor(primaryColor)
         }
 
-        applyStatus = success ? "Applied!" : "Failed to apply"
+        transactionLog = device.hidDevice.lastTransactionLog.joined(separator: "\n")
+        if success {
+            applyStatus = "Applied!"
+        } else if transactionLog?.contains("0xE00002E2") == true {
+            applyStatus = "Input Monitoring permission required"
+        } else if transactionLog?.contains("0xE00002C5") == true {
+            applyStatus = "HID interface is held exclusively"
+        } else {
+            applyStatus = "Device rejected the command"
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            if applyStatus == "Applied!" || applyStatus == "Failed to apply" {
+            if applyStatus == "Applied!" {
                 applyStatus = nil
             }
         }
@@ -505,5 +672,129 @@ enum LightingZone: String, CaseIterable, Identifiable {
         case .logo: return "Logo"
         case .underglow: return "Underglow"
         }
+    }
+}
+
+private struct KrakenHeadbandShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + 12, y: rect.maxY))
+        path.addCurve(
+            to: CGPoint(x: rect.maxX - 12, y: rect.maxY),
+            control1: CGPoint(x: rect.minX + 18, y: rect.minY - 7),
+            control2: CGPoint(x: rect.maxX - 18, y: rect.minY - 7)
+        )
+        return path
+    }
+}
+
+private struct KrakenCatEarShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + 2, y: rect.maxY))
+        path.addCurve(
+            to: CGPoint(x: rect.midX, y: rect.minY + 1),
+            control1: CGPoint(x: rect.minX + 7, y: rect.midY),
+            control2: CGPoint(x: rect.midX - 5, y: rect.minY + 2)
+        )
+        path.addCurve(
+            to: CGPoint(x: rect.maxX - 2, y: rect.maxY),
+            control1: CGPoint(x: rect.midX + 5, y: rect.minY + 2),
+            control2: CGPoint(x: rect.maxX - 7, y: rect.midY)
+        )
+        path.addQuadCurve(to: CGPoint(x: rect.minX + 2, y: rect.maxY), control: CGPoint(x: rect.midX, y: rect.maxY - 8))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct RazerLogoMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        for angle in stride(from: -90.0, through: 150.0, by: 120.0) {
+            let radians = angle * .pi / 180
+            let start = CGPoint(
+                x: center.x + CGFloat(cos(radians)) * rect.width * 0.12,
+                y: center.y + CGFloat(sin(radians)) * rect.height * 0.12
+            )
+            let outer = CGPoint(
+                x: center.x + CGFloat(cos(radians)) * rect.width * 0.43,
+                y: center.y + CGFloat(sin(radians)) * rect.height * 0.43
+            )
+            let curlAngle = radians + 2.25
+            let end = CGPoint(
+                x: center.x + CGFloat(cos(curlAngle)) * rect.width * 0.27,
+                y: center.y + CGFloat(sin(curlAngle)) * rect.height * 0.27
+            )
+            path.move(to: start)
+            path.addQuadCurve(to: end, control: outer)
+        }
+        return path
+    }
+}
+
+private struct DockPedestalShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX - 22, y: rect.minY))
+        path.addQuadCurve(to: CGPoint(x: rect.midX + 22, y: rect.minY), control: CGPoint(x: rect.midX, y: rect.minY - 7))
+        path.addLine(to: CGPoint(x: rect.maxX - 7, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + 7, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct ViperMouseShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addCurve(to: CGPoint(x: rect.maxX - 3, y: rect.midY),
+                      control1: CGPoint(x: rect.maxX - 16, y: rect.minY + 2),
+                      control2: CGPoint(x: rect.maxX + 2, y: rect.minY + 42))
+        path.addCurve(to: CGPoint(x: rect.midX, y: rect.maxY),
+                      control1: CGPoint(x: rect.maxX - 7, y: rect.maxY - 30),
+                      control2: CGPoint(x: rect.maxX - 33, y: rect.maxY - 3))
+        path.addCurve(to: CGPoint(x: rect.minX + 3, y: rect.midY),
+                      control1: CGPoint(x: rect.minX + 33, y: rect.maxY - 3),
+                      control2: CGPoint(x: rect.minX + 7, y: rect.maxY - 30))
+        path.addCurve(to: CGPoint(x: rect.midX, y: rect.minY),
+                      control1: CGPoint(x: rect.minX - 2, y: rect.minY + 42),
+                      control2: CGPoint(x: rect.minX + 16, y: rect.minY + 2))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct ViperButtonSeamShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.move(to: CGPoint(x: rect.midX - 7, y: rect.maxY))
+        path.addCurve(to: CGPoint(x: rect.minX, y: rect.maxY - 8),
+                      control1: CGPoint(x: rect.midX - 34, y: rect.maxY - 3),
+                      control2: CGPoint(x: rect.minX + 20, y: rect.maxY - 2))
+        path.move(to: CGPoint(x: rect.midX + 7, y: rect.maxY))
+        path.addCurve(to: CGPoint(x: rect.maxX, y: rect.maxY - 8),
+                      control1: CGPoint(x: rect.midX + 34, y: rect.maxY - 3),
+                      control2: CGPoint(x: rect.maxX - 20, y: rect.maxY - 2))
+        return path
+    }
+}
+
+private struct ViperGripShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + 14))
+        path.addCurve(to: CGPoint(x: rect.maxX, y: rect.maxY - 6),
+                      control1: CGPoint(x: rect.minX + 13, y: rect.minY),
+                      control2: CGPoint(x: rect.maxX - 3, y: rect.midY))
+        path.addCurve(to: CGPoint(x: rect.minX + 2, y: rect.maxY),
+                      control1: CGPoint(x: rect.maxX - 10, y: rect.maxY),
+                      control2: CGPoint(x: rect.minX + 8, y: rect.maxY + 2))
+        path.closeSubpath()
+        return path
     }
 }

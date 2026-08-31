@@ -82,6 +82,15 @@ final class DeviceDatabase {
             zones: kbZones, matrix: (6, 22)
         ))
 
+        // BlackWidow V3 (wired)
+        register(RazerDeviceInfo(
+            pid: 0x024E, name: "BlackWidow V3", type: .keyboard,
+            features: [.staticEffect, .breathingEffect, .waveEffect, .spectrumEffect,
+                       .matrixRGB, .brightnessCtrl],
+            proto: .extended, txId: 0x1F,
+            zones: kbZones, matrix: (6, 22)
+        ))
+
         // BlackWidow V3 TKL
         register(RazerDeviceInfo(
             pid: 0x0A24, name: "BlackWidow V3 TKL", type: .keyboard,
@@ -203,6 +212,15 @@ final class DeviceDatabase {
             zones: kbZones, matrix: (6, 18)
         ))
 
+        // Orbweaver Chroma
+        register(RazerDeviceInfo(
+            pid: 0x0207, name: "Orbweaver Chroma", type: .keyboard,
+            features: [.staticEffect, .breathingEffect, .waveEffect, .spectrumEffect,
+                       .matrixRGB, .brightnessCtrl, .macroKeys],
+            proto: .standard, txId: 0xFF,
+            zones: kbZones, matrix: (5, 22), macroKeys: 20
+        ))
+
         // Tartarus V2
         register(RazerDeviceInfo(
             pid: 0x0208, name: "Tartarus V2", type: .keyboard,
@@ -273,6 +291,16 @@ final class DeviceDatabase {
             features: [.allEffects, .dpiControl, .wireless, .bluetooth, .brightnessCtrl],
             proto: .extended, txId: 0x3F,
             zones: mouseZonesUnderglow, dpiMax: 35000, buttons: 5
+        ))
+
+        // Viper Ultimate (wireless dongle)
+        register(RazerDeviceInfo(
+            pid: 0x007B, name: "Viper Ultimate (Wireless)", type: .mouse,
+            features: [.staticEffect, .breathingEffect, .spectrumEffect, .reactiveEffect,
+                       .matrixRGB, .brightnessCtrl, .dpiControl, .pollRateCtrl, .wireless],
+            proto: .extended, txId: 0x3F,
+            zones: [RazerDeviceZone(led: .logo, label: "Logo")],
+            matrix: (1, 1), dpiMax: 20000, buttons: 8
         ))
 
         // Basilisk V3
@@ -367,6 +395,23 @@ final class DeviceDatabase {
     // MARK: - Accessories
 
     private func registerAccessories() {
+        // Viper Ultimate Mouse Dock Chroma
+        register(RazerDeviceInfo(
+            pid: 0x007E, name: "Viper Ultimate Mouse Dock", type: .accessory,
+            features: [.staticEffect, .breathingEffect, .spectrumEffect, .brightnessCtrl],
+            proto: .extended, txId: 0x3F,
+            zones: [RazerDeviceZone(led: .none, label: "Base Ring")]
+        ))
+
+        // Kraken Kitty Edition Chroma controller. The companion USB audio
+        // function (0x0521) is intentionally not presented as a control device.
+        register(RazerDeviceInfo(
+            pid: 0x0F19, name: "Kraken Kitty Edition", type: .headset,
+            features: [.staticEffect, .breathingEffect, .spectrumEffect, .brightnessCtrl],
+            proto: .extended, txId: 0x1F,
+            zones: [RazerDeviceZone(led: .none, label: "All Lighting")]
+        ))
+
         // Mouse Dock Pro
         register(RazerDeviceInfo(
             pid: 0x00BE, name: "Mouse Dock Pro", type: .accessory,

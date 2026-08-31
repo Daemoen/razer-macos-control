@@ -35,6 +35,36 @@ struct DeviceDatabaseTests {
         #expect(device?.type == .mouse)
     }
 
+    @Test("Orbweaver Chroma uses the standard keypad protocol")
+    func orbweaverChroma() {
+        let device = DeviceDatabase.shared.lookup(pid: 0x0207)
+        #expect(device?.name == "Orbweaver Chroma")
+        #expect(device?.type == .keyboard)
+        #expect(device?.protocolVersion == .standard)
+        #expect(device?.transactionId == 0xFF)
+        #expect(device?.matrixDims?.rows == 5)
+        #expect(device?.matrixDims?.cols == 22)
+        #expect(device?.macroKeyCount == 20)
+        #expect(device?.features.contains(.reactiveEffect) == false)
+        #expect(device?.features.contains(.starlightEffect) == false)
+    }
+
+    @Test("Viper Ultimate wireless dongle is in database")
+    func viperUltimateWireless() {
+        let device = DeviceDatabase.shared.lookup(pid: 0x007B)
+        #expect(device?.name == "Viper Ultimate (Wireless)")
+        #expect(device?.type == .mouse)
+        #expect(device?.protocolVersion == .standard)
+        #expect(device?.transactionId == 0xFF)
+        #expect(device?.matrixDims?.rows == 1)
+        #expect(device?.matrixDims?.cols == 1)
+        #expect(device?.dpiMax == 20000)
+        #expect(device?.buttonCount == 8)
+        #expect(device?.features.contains(.wireless) == true)
+        #expect(device?.features.contains(.waveEffect) == false)
+        #expect(device?.features.contains(.starlightEffect) == false)
+    }
+
     @Test("Unknown PID returns nil")
     func unknownPID() {
         let device = DeviceDatabase.shared.lookup(pid: 0xFFFF)
