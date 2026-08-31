@@ -6,7 +6,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.appearance = NSAppearance(named: .darkAqua)
 
         // Check Accessibility (needed for key remapping, not for RGB)
-        let ax = AXIsProcessTrusted()
+        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        let ax = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
         NSLog("[RazerControl] AXIsProcessTrusted: %@", ax ? "YES" : "NO")
         let debug = "AX=\(ax) bundle=\(Bundle.main.bundleIdentifier ?? "nil") pid=\(ProcessInfo.processInfo.processIdentifier)\n"
         try? debug.write(toFile: "/tmp/razercontrol_debug.txt", atomically: true, encoding: .utf8)

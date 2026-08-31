@@ -39,9 +39,16 @@ echo "=== Creating app bundle ==="
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
+mkdir -p "$APP_DIR/Contents/Library/LaunchServices"
 
 # Copy binary
 cp "$BINARY" "$APP_DIR/Contents/MacOS/${APP_NAME}"
+
+HELPER_BINARY=".build/${ARCH}-apple-macosx/${CONFIG}/RazerControlInputHelper"
+if [ ! -f "$HELPER_BINARY" ]; then
+    HELPER_BINARY=".build/${CONFIG}/RazerControlInputHelper"
+fi
+cp "$HELPER_BINARY" "$APP_DIR/Contents/Library/LaunchServices/RazerControlInputHelper"
 
 # Keep resources in the standard signed-app location. During local development,
 # SwiftPM's generated accessor can also fall back to the bundle in .build.
@@ -86,8 +93,9 @@ cat > "$APP_DIR/Contents/Info.plist" << PLIST
 </plist>
 PLIST
 
-# Ad-hoc sign
+# Sign the nested helper first, then seal the containing app.
 echo "=== Signing ==="
+codesign --force --sign - "$APP_DIR/Contents/Library/LaunchServices/RazerControlInputHelper"
 codesign --force --deep --sign - "$APP_DIR"
 
 echo "=== Done ==="

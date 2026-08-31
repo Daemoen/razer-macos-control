@@ -131,16 +131,25 @@ struct MainView: View {
                         .padding(.horizontal, 16)
                 }
 
-                // Karabiner handles device-specific key and button remapping.
+                // RazerControl owns the keypad interface and emits mapped keys.
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(deviceManager.isKarabinerReady ? Color.razerSuccess : Color.razerWarning)
+                        .fill(deviceManager.isNativeInputActive ? Color.razerSuccess : Color.razerWarning)
                         .frame(width: 5, height: 5)
-                    Text(deviceManager.isKarabinerReady ? "Button mapping: Ready" : "Karabiner needed")
+                    Text(deviceManager.isNativeInputActive ? "Native input: Active" : "Native input unavailable")
                         .font(RazerFont.caption(9))
-                        .foregroundColor(deviceManager.isKarabinerReady ? .razerSuccess : .razerTextTertiary)
+                        .foregroundColor(deviceManager.isNativeInputActive ? .razerSuccess : .razerTextTertiary)
                 }
                 .padding(.horizontal, 16)
+
+                if !deviceManager.isNativeInputActive,
+                   deviceManager.devices.contains(where: { $0.pid == 0x0207 }) {
+                    Button("Enable Native Input") {
+                        deviceManager.installNativeInputService()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
 
                 if let err = deviceManager.lastError {
                     Text(err)

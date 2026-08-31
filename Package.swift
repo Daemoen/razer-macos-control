@@ -8,6 +8,14 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
+            name: "RazerControlInputHelper",
+            path: "Sources/RazerControlInputHelper",
+            linkerSettings: [
+                .linkedFramework("IOKit"),
+                .linkedFramework("Network")
+            ]
+        ),
+        .executableTarget(
             name: "RazerControl",
             path: "Sources/RazerControl",
             resources: [

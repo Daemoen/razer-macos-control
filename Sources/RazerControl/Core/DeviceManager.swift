@@ -120,6 +120,7 @@ class DeviceManager: ObservableObject {
     @Published var isScanning = false
     @Published var lastError: String?
     @Published var pressedKeyboardUsages: Set<UInt8> = []
+    @Published var isNativeInputActive = false
 
     /// Active key mappings: HID keycode → action
     @Published var keyMappings: [UInt8: KeyAction] = [:]
@@ -127,6 +128,8 @@ class DeviceManager: ObservableObject {
 
     let profileManager = ProfileManager()
     private let karabinerBackend = KarabinerBackend()
+    private let nativeRemapper = NativeHIDRemapper()
+    private let privilegedInput = PrivilegedInputClient()
 
     /// Active mouse button mappings: button number → action
     @Published var mouseMappings: [Int: KeyAction] = [:]
@@ -156,6 +159,29 @@ class DeviceManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$pressedKeyboardUsages)
 
+        privilegedInput.$isActive
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isNativeInputActive)
+
+        inputMonitor.$error
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$lastError)
+
+        privilegedInput.$error
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$lastError)
+
+        privilegedInput.onKeyboardUsage = { [weak self] usage, isPressed in
+            guard let self else { return }
+            if isPressed { self.pressedKeyboardUsages.insert(usage) }
+            else { self.pressedKeyboardUsages.remove(usage) }
+            self.nativeRemapper.handle(source: usage, isPressed: isPressed)
+        }
+
+        privilegedInput.start()
+
         // Load saved mappings
         loadMappings()
     }
@@ -168,7 +194,6 @@ class DeviceManager: ObservableObject {
     }
 
     func stopScanning() {
-        inputMonitor.stop()
         hidManager.stop()
         isScanning = false
     }
@@ -223,9 +248,9 @@ class DeviceManager: ObservableObject {
         }
 
         if devices.contains(where: { $0.pid == 0x0207 }) {
-            inputMonitor.start(productId: 0x0207)
+            nativeRemapper.updateMappings(keyMappings)
         } else {
-            inputMonitor.stop()
+            nativeRemapper.releaseAll()
         }
     }
 
@@ -242,6 +267,10 @@ class DeviceManager: ObservableObject {
     var hasDevices: Bool { !devices.isEmpty }
     var isKarabinerReady: Bool { karabinerBackend.isConfigured }
 
+    func installNativeInputService() {
+        privilegedInput.install()
+    }
+
     // MARK: - Key Mapping
 
     /// Save a key mapping: source HID keycode → target action
@@ -249,24 +278,28 @@ class DeviceManager: ObservableObject {
         keyMappings[sourceHID] = action
         print("[DeviceManager] Mapped HID 0x\(String(format: "%02X", sourceHID)) → \(action)")
         saveMappings()
-        syncKarabinerMappings()
+        nativeRemapper.updateMappings(keyMappings)
+        isRemappingActive = !keyMappings.isEmpty && isNativeInputActive
     }
 
     func clearKeyMapping(sourceHID: UInt8) {
         keyMappings.removeValue(forKey: sourceHID)
         saveMappings()
-        syncKarabinerMappings()
+        nativeRemapper.updateMappings(keyMappings)
+        isRemappingActive = !keyMappings.isEmpty && isNativeInputActive
     }
 
-    /// Publish the saved key mappings to Karabiner.
+    /// Enable the native, device-scoped remapper.
     func startRemapping() {
         guard !keyMappings.isEmpty else { return }
-        syncKarabinerMappings()
+        nativeRemapper.updateMappings(keyMappings)
+        isRemappingActive = isNativeInputActive
     }
 
     /// Stop remapping
     func stopRemapping() {
-        syncKarabinerMappings()
+        nativeRemapper.updateMappings([:])
+        isRemappingActive = false
     }
 
     // MARK: - Mouse Mapping

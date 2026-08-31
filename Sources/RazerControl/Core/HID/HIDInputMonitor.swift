@@ -8,12 +8,15 @@ final class RazerHIDInputMonitor: ObservableObject {
     @Published private(set) var pressedKeyboardUsages: Set<UInt8> = []
     @Published private(set) var lastUsage: UInt8?
     @Published private(set) var error: String?
+    @Published private(set) var isExclusive = false
+
+    var onKeyboardUsage: ((UInt8, Bool) -> Void)?
 
     private var manager: IOHIDManager?
     private var activeProductId: UInt16?
     private let traceURL = URL(fileURLWithPath: "/tmp/razercontrol_input_trace.log")
 
-    func start(productId: UInt16) {
+    func start(productId: UInt16, seize: Bool = false) {
         guard activeProductId != productId else { return }
         stop()
 
@@ -24,13 +27,11 @@ final class RazerHIDInputMonitor: ObservableObject {
             kIOHIDDeviceUsagePageKey as String: 0x01,
             kIOHIDDeviceUsageKey as String: 0x06,
         ]
-        let pointerMatch: [String: Any] = [
-            kIOHIDVendorIDKey as String: Int(RazerUSB.vendorId),
-            kIOHIDProductIDKey as String: Int(productId),
-            kIOHIDDeviceUsagePageKey as String: 0x01,
-            kIOHIDDeviceUsageKey as String: 0x02,
-        ]
-        IOHIDManagerSetDeviceMatchingMultiple(manager, [keyboardMatch, pointerMatch] as CFArray)
+        // The Orbweaver exposes both keyboard and pointer-style HID interfaces,
+        // but every assignable control (including the D-pad) arrives on usage
+        // page 0x07. Seizing its pointer interface is unnecessary and modern
+        // macOS rejects that broader privileged open.
+        IOHIDManagerSetDeviceMatching(manager, keyboardMatch as CFDictionary)
         IOHIDManagerRegisterInputValueCallback(
             manager,
             Self.inputValueCallback,
@@ -38,19 +39,29 @@ final class RazerHIDInputMonitor: ObservableObject {
         )
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
 
-        let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        let openOptions = seize
+            ? IOOptionBits(kIOHIDOptionsTypeSeizeDevice)
+            : IOOptionBits(kIOHIDOptionsTypeNone)
+        let result = IOHIDManagerOpen(manager, openOptions)
         guard result == kIOReturnSuccess else {
             IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
-            error = "Raw input open failed: \(String(format: "0x%08X", result))"
+            if result == kIOReturnNotPrivileged {
+                error = "Input Monitoring denied (\(String(format: "0x%08X", result)))"
+            } else if result == kIOReturnExclusiveAccess {
+                error = "Another app owns raw input (\(String(format: "0x%08X", result)))"
+            } else {
+                error = "Raw input open failed: \(String(format: "0x%08X", result))"
+            }
             return
         }
 
         self.manager = manager
         activeProductId = productId
+        isExclusive = seize
         try? "RazerControl raw input trace — PID \(String(format: "%04X", productId))\n"
             .write(to: traceURL, atomically: true, encoding: .utf8)
         error = nil
-        print("[RazerInput] Observing VID 1532 PID \(String(format: "%04X", productId))")
+        print("[RazerInput] \(seize ? "Exclusively capturing" : "Observing") VID 1532 PID \(String(format: "%04X", productId))")
     }
 
     func stop() {
@@ -60,6 +71,7 @@ final class RazerHIDInputMonitor: ObservableObject {
         }
         manager = nil
         activeProductId = nil
+        isExclusive = false
         pressedKeyboardUsages.removeAll()
     }
 
@@ -104,6 +116,7 @@ final class RazerHIDInputMonitor: ObservableObject {
             } else {
                 self.pressedKeyboardUsages.remove(usage)
             }
+            self.onKeyboardUsage?(usage, isPressed)
             print("[RazerInput] usage=\(String(format: "0x%02X", usage)) \(isPressed ? "down" : "up")")
         }
     }
