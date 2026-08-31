@@ -5,7 +5,7 @@
     <key>Label</key>
     <string>com.razercontrol.input-helper</string>
     <key>BundleProgram</key>
-    <string>Contents/Library/LaunchServices/RazerControlInputHelper</string>
+    <string>Contents/Library/LaunchServices/RazerControl Input Service.app/Contents/MacOS/RazerControlInputHelper</string>
     <key>MachServices</key>
     <dict><key>com.razercontrol.input-helper</key><true/></dict>
     <key>AssociatedBundleIdentifiers</key>

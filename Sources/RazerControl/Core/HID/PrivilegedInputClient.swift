@@ -92,7 +92,7 @@ final class PrivilegedInputClient: NSObject, ObservableObject, RazerInputClientP
         stop()
 
         guard let helperURL = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Library/LaunchServices/RazerControlInputHelper") as URL?,
+            .appendingPathComponent("Contents/Library/LaunchServices/RazerControl Input Service.app") as URL?,
               let helperRequirement = designatedRequirement(at: helperURL) else {
             error = "Unable to verify the bundled input service"
             return

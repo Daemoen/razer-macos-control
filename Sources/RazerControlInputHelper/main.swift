@@ -1,5 +1,6 @@
 import Foundation
 import IOKit.hid
+import IOKit
 import RazerControlIPC
 import SystemConfiguration
 import Security
@@ -56,6 +57,15 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
     }
 
     private func openOrbweaver() -> String? {
+        var access = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
+        if access == kIOHIDAccessTypeUnknown {
+            _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+            access = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
+        }
+        guard access == kIOHIDAccessTypeGranted else {
+            return "Input Monitoring required for RazerControl Input Service"
+        }
+
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
         let match: [String: Any] = [
             kIOHIDVendorIDKey as String: 0x1532,
@@ -116,10 +126,16 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
             NSLog("[RazerInputHelper] _NSGetExecutablePath failed")
             return nil
         }
-        var appURL = URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath()
-        for _ in 0..<4 { appURL.deleteLastPathComponent() }
-        NSLog("[RazerInputHelper] Validating containing app at %@", appURL.path)
-        return designatedRequirement(at: appURL)
+        var candidate = URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath()
+        while candidate.path != "/" {
+            if candidate.pathExtension == "app",
+               Bundle(url: candidate)?.bundleIdentifier == "com.razercontrol.app" {
+                NSLog("[RazerInputHelper] Validating containing app at %@", candidate.path)
+                return designatedRequirement(at: candidate)
+            }
+            candidate.deleteLastPathComponent()
+        }
+        return nil
     }
 
     private func designatedRequirement(at url: URL) -> String? {
