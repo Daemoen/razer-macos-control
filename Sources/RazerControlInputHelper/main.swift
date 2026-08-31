@@ -3,6 +3,7 @@ import IOKit.hid
 import RazerControlIPC
 import SystemConfiguration
 import Security
+import Darwin
 
 final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProtocol {
     private var manager: IOHIDManager?
@@ -109,21 +110,38 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
     }
 
     private func containingAppRequirement() -> String? {
-        var appURL = Bundle.main.executableURL
-        for _ in 0..<4 { appURL?.deleteLastPathComponent() }
-        guard let appURL else { return nil }
+        var pathSize: UInt32 = 0
+        _NSGetExecutablePath(nil, &pathSize)
+        var path = [CChar](repeating: 0, count: Int(pathSize))
+        guard _NSGetExecutablePath(&path, &pathSize) == 0 else {
+            NSLog("[RazerInputHelper] _NSGetExecutablePath failed")
+            return nil
+        }
+        var appURL = URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath()
+        for _ in 0..<4 { appURL.deleteLastPathComponent() }
+        NSLog("[RazerInputHelper] Validating containing app at %@", appURL.path)
         return designatedRequirement(at: appURL)
     }
 
     private func designatedRequirement(at url: URL) -> String? {
         var staticCode: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(url as CFURL, [], &staticCode) == errSecSuccess,
-              let staticCode else { return nil }
+        let createStatus = SecStaticCodeCreateWithPath(url as CFURL, [], &staticCode)
+        guard createStatus == errSecSuccess, let staticCode else {
+            NSLog("[RazerInputHelper] SecStaticCodeCreateWithPath failed: %d", createStatus)
+            return nil
+        }
         var requirement: SecRequirement?
-        guard SecCodeCopyDesignatedRequirement(staticCode, [], &requirement) == errSecSuccess,
-              let requirement else { return nil }
+        let requirementStatus = SecCodeCopyDesignatedRequirement(staticCode, [], &requirement)
+        guard requirementStatus == errSecSuccess, let requirement else {
+            NSLog("[RazerInputHelper] SecCodeCopyDesignatedRequirement failed: %d", requirementStatus)
+            return nil
+        }
         var text: CFString?
-        guard SecRequirementCopyString(requirement, [], &text) == errSecSuccess else { return nil }
+        let stringStatus = SecRequirementCopyString(requirement, [], &text)
+        guard stringStatus == errSecSuccess else {
+            NSLog("[RazerInputHelper] SecRequirementCopyString failed: %d", stringStatus)
+            return nil
+        }
         return text as String?
     }
 }
