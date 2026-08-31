@@ -8,6 +8,7 @@ CONFIG="${1:-release}"
 APP_NAME="RazerControl"
 BUNDLE_ID="com.razercontrol.app"
 VERSION="0.1.0"
+BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || date +%s)}"
 BUILD_DIR=".build/${CONFIG}"
 APP_DIR="dist/${APP_NAME}.app"
 
@@ -80,7 +81,7 @@ cat > "$APP_DIR/Contents/Info.plist" << PLIST
     <key>CFBundleShortVersionString</key>
     <string>${VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>${BUILD_NUMBER}</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>
