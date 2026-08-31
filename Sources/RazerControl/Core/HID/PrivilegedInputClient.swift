@@ -43,7 +43,22 @@ final class PrivilegedInputClient: NSObject, ObservableObject, RazerInputClientP
     }
 
     func install() {
+        refreshStatus()
         do {
+            // An ad-hoc designated requirement is a CDHash, which changes on
+            // every rebuild. Service Management cannot launch a replacement
+            // until its prior lightweight code requirement is unregistered.
+            // Proper Apple Development / Developer ID requirements are stable
+            // and must retain their existing registration and approval.
+            if serviceStatus != .notRegistered, isAdHocSigned {
+                try service.unregister()
+                serviceStatus = service.status
+            } else if serviceStatus == .enabled {
+                error = nil
+                connect()
+                return
+            }
+
             try service.register()
             error = nil
         } catch {
@@ -147,5 +162,10 @@ final class PrivilegedInputClient: NSObject, ObservableObject, RazerInputClientP
         var text: CFString?
         guard SecRequirementCopyString(requirement, [], &text) == errSecSuccess else { return nil }
         return text as String?
+    }
+
+    private var isAdHocSigned: Bool {
+        guard let requirement = designatedRequirement(at: Bundle.main.bundleURL) else { return false }
+        return requirement.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("cdhash ")
     }
 }
