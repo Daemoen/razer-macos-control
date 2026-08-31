@@ -5,7 +5,7 @@ import RazerControlIPC
 import Security
 
 @MainActor
-final class PrivilegedInputClient: NSObject, ObservableObject, NSXPCListenerDelegate, RazerInputClientProtocol {
+final class PrivilegedInputClient: NSObject, ObservableObject, RazerInputClientProtocol {
     @Published private(set) var isActive = false
     @Published private(set) var serviceStatus: SMAppService.Status = .notRegistered
     @Published private(set) var error: String?
@@ -13,7 +13,6 @@ final class PrivilegedInputClient: NSObject, ObservableObject, NSXPCListenerDele
 
     private let service = SMAppService.daemon(plistName: "com.razercontrol.input-helper.plist")
     private var connection: NSXPCConnection?
-    private var callbackListener: NSXPCListener?
     private var activationObserver: NSObjectProtocol?
 
     override init() {
@@ -40,8 +39,6 @@ final class PrivilegedInputClient: NSObject, ObservableObject, NSXPCListenerDele
     func stop() {
         connection?.invalidate()
         connection = nil
-        callbackListener?.invalidate()
-        callbackListener = nil
         isActive = false
     }
 
@@ -79,22 +76,23 @@ final class PrivilegedInputClient: NSObject, ObservableObject, NSXPCListenerDele
     private func connect() {
         stop()
 
-        let callback = NSXPCListener.anonymous()
         guard let helperURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Library/LaunchServices/RazerControlInputHelper") as URL?,
               let helperRequirement = designatedRequirement(at: helperURL) else {
             error = "Unable to verify the bundled input service"
             return
         }
-        callback.setConnectionCodeSigningRequirement(helperRequirement)
-        callback.delegate = self
-        callback.activate()
-        callbackListener = callback
-
         let connection = NSXPCConnection(machServiceName: razerInputMachServiceName,
                                          options: .privileged)
         connection.setCodeSigningRequirement(helperRequirement)
-        connection.remoteObjectInterface = NSXPCInterface(with: RazerInputHelperProtocol.self)
+        let helperInterface = NSXPCInterface(with: RazerInputHelperProtocol.self)
+        helperInterface.setInterface(
+            NSXPCInterface(with: RazerInputClientProtocol.self),
+            for: #selector(RazerInputHelperProtocol.registerClient(_:withReply:)),
+            argumentIndex: 0,
+            ofReply: false
+        )
+        connection.remoteObjectInterface = helperInterface
         connection.invalidationHandler = { [weak self] in
             Task { @MainActor in self?.isActive = false }
         }
@@ -110,20 +108,12 @@ final class PrivilegedInputClient: NSObject, ObservableObject, NSXPCListenerDele
                 self?.isActive = false
             }
         } as? RazerInputHelperProtocol
-        proxy?.registerClient(callback.endpoint) { [weak self] success, message in
+        proxy?.registerClient(self) { [weak self] success, message in
             Task { @MainActor in
                 self?.isActive = success
                 self?.error = message
             }
         }
-    }
-
-    nonisolated func listener(_ listener: NSXPCListener,
-                              shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
-        connection.exportedInterface = NSXPCInterface(with: RazerInputClientProtocol.self)
-        connection.exportedObject = self
-        connection.resume()
-        return true
     }
 
     nonisolated func helperReady() {

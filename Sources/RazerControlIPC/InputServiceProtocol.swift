@@ -3,7 +3,7 @@ import Foundation
 public let razerInputMachServiceName = "com.razercontrol.input-helper"
 
 @objc public protocol RazerInputHelperProtocol {
-    func registerClient(_ endpoint: NSXPCListenerEndpoint,
+    func registerClient(_ client: RazerInputClientProtocol,
                         withReply reply: @escaping (Bool, String?) -> Void)
 }
 

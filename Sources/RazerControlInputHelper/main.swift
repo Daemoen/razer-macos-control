@@ -7,7 +7,7 @@ import Darwin
 
 final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProtocol {
     private var manager: IOHIDManager?
-    private var clientConnection: NSXPCConnection?
+    private var client: RazerInputClientProtocol?
 
     func run() -> Never {
         let listener = NSXPCListener(machServiceName: razerInputMachServiceName)
@@ -26,28 +26,30 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
         // register a callback that receives keypad input. Still, constrain it
         // to the active console user rather than accepting cross-user clients.
         guard connection.effectiveUserIdentifier == consoleUserID() else { return false }
-        connection.exportedInterface = NSXPCInterface(with: RazerInputHelperProtocol.self)
+        let helperInterface = NSXPCInterface(with: RazerInputHelperProtocol.self)
+        helperInterface.setInterface(
+            NSXPCInterface(with: RazerInputClientProtocol.self),
+            for: #selector(RazerInputHelperProtocol.registerClient(_:withReply:)),
+            argumentIndex: 0,
+            ofReply: false
+        )
+        connection.exportedInterface = helperInterface
         connection.exportedObject = self
         connection.invalidationHandler = { [weak self] in self?.shutdown() }
         connection.activate()
         return true
     }
 
-    func registerClient(_ endpoint: NSXPCListenerEndpoint,
+    func registerClient(_ client: RazerInputClientProtocol,
                         withReply reply: @escaping (Bool, String?) -> Void) {
-        clientConnection?.invalidate()
-        let client = NSXPCConnection(listenerEndpoint: endpoint)
-        client.remoteObjectInterface = NSXPCInterface(with: RazerInputClientProtocol.self)
-        client.invalidationHandler = { [weak self] in self?.shutdown() }
-        client.activate()
-        clientConnection = client
+        self.client = client
 
         if manager == nil, let failure = openOrbweaver() {
-            remoteClient()?.helperError(failure)
+            client.helperError(failure)
             reply(false, failure)
             return
         }
-        remoteClient()?.helperReady()
+        client.helperReady()
         reply(true, nil)
     }
 
@@ -81,14 +83,8 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
         let usage = IOHIDElementGetUsage(element)
         guard IOHIDElementGetUsagePage(element) == 0x07,
               usage > 0x03, usage <= UInt32(UInt8.max) else { return }
-        service.remoteClient()?.inputEvent(usage: Int(usage),
-                                           pressed: IOHIDValueGetIntegerValue(value) != 0)
-    }
-
-    private func remoteClient() -> RazerInputClientProtocol? {
-        clientConnection?.remoteObjectProxyWithErrorHandler { error in
-            NSLog("[RazerInputHelper] Client XPC error: %@", error.localizedDescription)
-        } as? RazerInputClientProtocol
+        service.client?.inputEvent(usage: Int(usage),
+                                   pressed: IOHIDValueGetIntegerValue(value) != 0)
     }
 
     private func consoleUserID() -> uid_t {
@@ -105,7 +101,7 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
             IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         }
         manager = nil
-        clientConnection = nil
+        client = nil
         exit(EXIT_SUCCESS)
     }
 
