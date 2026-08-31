@@ -36,6 +36,11 @@ let package = Package(
                 .linkedFramework("Security")
             ]
         ),
+        .executableTarget(
+            name: "RazerControlIPCProbe",
+            dependencies: ["RazerControlIPC"],
+            path: "Tests/RazerControlIPCProbe"
+        ),
         .testTarget(
             name: "RazerControlTests",
             dependencies: ["RazerControl"],

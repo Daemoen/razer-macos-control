@@ -8,10 +8,23 @@ CONFIG="${1:-release}"
 APP_NAME="RazerControl"
 BUNDLE_ID="com.razercontrol.app"
 VERSION="0.1.0"
-BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || date +%s)}"
+if [ -z "${BUILD_NUMBER:-}" ]; then
+    if ! git diff --quiet --ignore-submodules -- 2>/dev/null || [ -n "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then
+        BUILD_NUMBER="$(date +%Y%m%d%H%M%S)"
+    else
+        BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || date +%s)"
+    fi
+fi
 SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-RazerControl Development}"
 BUILD_DIR=".build/${CONFIG}"
 APP_DIR="dist/${APP_NAME}.app"
+
+# Keep compiler caches out of user-library locations that may be unavailable
+# to automated/local build environments. Let xcrun select the SDK matching the
+# active Swift toolchain unless the caller explicitly supplies SDKROOT.
+export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-${TMPDIR:-/tmp}/razercontrol-clang-cache}"
+export SWIFTPM_MODULECACHE_OVERRIDE="${SWIFTPM_MODULECACHE_OVERRIDE:-${TMPDIR:-/tmp}/razercontrol-swift-cache}"
+mkdir -p "$CLANG_MODULE_CACHE_PATH" "$SWIFTPM_MODULECACHE_OVERRIDE"
 
 echo "=== Building RazerControl ($CONFIG) ==="
 

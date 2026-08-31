@@ -1,8 +1,18 @@
 import AppKit
 import ApplicationServices
+import Darwin
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if CommandLine.arguments.contains("--native-input-self-test") {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let result = NativeInputSelfTest.run()
+                FileHandle.standardOutput.write(Data((result.message + "\n").utf8))
+                Darwin.exit(result.succeeded ? EXIT_SUCCESS : EXIT_FAILURE)
+            }
+            return
+        }
+
         NSApp.appearance = NSAppearance(named: .darkAqua)
 
         // Check Accessibility (needed for key remapping, not for RGB)
