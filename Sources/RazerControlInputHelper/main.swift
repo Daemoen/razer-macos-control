@@ -27,6 +27,7 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
         guard connection.effectiveUserIdentifier == consoleUserID() else { return false }
         connection.exportedInterface = NSXPCInterface(with: RazerInputHelperProtocol.self)
         connection.exportedObject = self
+        connection.invalidationHandler = { [weak self] in self?.shutdown() }
         connection.activate()
         return true
     }
@@ -36,7 +37,7 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
         clientConnection?.invalidate()
         let client = NSXPCConnection(listenerEndpoint: endpoint)
         client.remoteObjectInterface = NSXPCInterface(with: RazerInputClientProtocol.self)
-        client.invalidationHandler = { [weak self] in self?.clientConnection = nil }
+        client.invalidationHandler = { [weak self] in self?.shutdown() }
         client.activate()
         clientConnection = client
 
@@ -94,6 +95,17 @@ final class InputService: NSObject, NSXPCListenerDelegate, RazerInputHelperProto
         var gid: gid_t = 0
         _ = SCDynamicStoreCopyConsoleUser(nil, &uid, &gid)
         return uid
+    }
+
+    private func shutdown() {
+        if let manager {
+            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(),
+                                              CFRunLoopMode.commonModes.rawValue)
+            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        }
+        manager = nil
+        clientConnection = nil
+        exit(EXIT_SUCCESS)
     }
 
     private func containingAppRequirement() -> String? {
