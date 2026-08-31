@@ -40,6 +40,7 @@ rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 mkdir -p "$APP_DIR/Contents/Library/LaunchServices"
+mkdir -p "$APP_DIR/Contents/Library/LaunchDaemons"
 
 # Copy binary
 cp "$BINARY" "$APP_DIR/Contents/MacOS/${APP_NAME}"
@@ -49,7 +50,7 @@ if [ ! -f "$HELPER_BINARY" ]; then
     HELPER_BINARY=".build/${CONFIG}/RazerControlInputHelper"
 fi
 cp "$HELPER_BINARY" "$APP_DIR/Contents/Library/LaunchServices/RazerControlInputHelper"
-cp "Sources/RazerControl/Resources/com.razercontrol.input-helper.plist" "$APP_DIR/Contents/Resources/"
+cp "Sources/RazerControl/Resources/com.razercontrol.input-helper.plist" "$APP_DIR/Contents/Library/LaunchDaemons/"
 
 # Keep resources in the standard signed-app location. During local development,
 # SwiftPM's generated accessor can also fall back to the bundle in .build.

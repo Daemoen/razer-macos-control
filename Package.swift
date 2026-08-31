@@ -7,16 +7,22 @@ let package = Package(
         .macOS(.v13)
     ],
     targets: [
+        .target(
+            name: "RazerControlIPC",
+            path: "Sources/RazerControlIPC"
+        ),
         .executableTarget(
             name: "RazerControlInputHelper",
+            dependencies: ["RazerControlIPC"],
             path: "Sources/RazerControlInputHelper",
             linkerSettings: [
                 .linkedFramework("IOKit"),
-                .linkedFramework("Network")
+                .linkedFramework("SystemConfiguration")
             ]
         ),
         .executableTarget(
             name: "RazerControl",
+            dependencies: ["RazerControlIPC"],
             path: "Sources/RazerControl",
             resources: [
                 .copy("Resources")
@@ -25,6 +31,7 @@ let package = Package(
                 .linkedFramework("IOKit"),
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("AppKit")
+                , .linkedFramework("ServiceManagement")
             ]
         ),
         .testTarget(

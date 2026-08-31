@@ -4,12 +4,14 @@
 <dict>
     <key>Label</key>
     <string>com.razercontrol.input-helper</string>
-    <key>ProgramArguments</key>
-    <array><string>/Library/PrivilegedHelperTools/com.razercontrol.input-helper</string></array>
+    <key>BundleProgram</key>
+    <string>Contents/Library/LaunchServices/RazerControlInputHelper</string>
+    <key>MachServices</key>
+    <dict><key>com.razercontrol.input-helper</key><true/></dict>
+    <key>AssociatedBundleIdentifiers</key>
+    <array><string>com.razercontrol.app</string></array>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
     <key>ProcessType</key><string>Interactive</string>
-    <key>StandardOutPath</key><string>/var/log/razercontrol-input.log</string>
-    <key>StandardErrorPath</key><string>/var/log/razercontrol-input.log</string>
 </dict>
 </plist>
