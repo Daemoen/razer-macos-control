@@ -39,8 +39,11 @@ struct MouseView: View {
                 .padding(.top, 16)
 
                 if isViperUltimate {
-                    VStack(spacing: 14) {
-                        buttonMappingsPanel
+                    HStack(alignment: .top, spacing: 20) {
+                        viperMouseVisualization
+                        VStack(spacing: 14) {
+                            buttonMappingsPanel
+                        }
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
@@ -63,6 +66,64 @@ struct MouseView: View {
                     .environmentObject(deviceManager)
             }
         }
+    }
+
+    // MARK: - Viper Ultimate Visualization
+
+    /// Top-down Viper Ultimate with clickable button hotspots.
+    ///
+    /// The mouse tab used to draw nothing at all for this device: the only
+    /// silhouette in the app was a vertical wedge belonging to the Pro Click,
+    /// and it sat in the `else` branch, so an ambidextrous Viper got a bare
+    /// table with no picture. The shapes are shared with the lighting preview
+    /// so the two views cannot drift into drawing two different mice.
+    private var viperMouseVisualization: some View {
+        VStack(spacing: 10) {
+            RazerSectionHeader("Viper Ultimate", subtitle: "Click a button to assign its action")
+
+            ZStack {
+                ViperMouseShape()
+                    .fill(LinearGradient(colors: [Color(red: 0.16, green: 0.17, blue: 0.19), .black],
+                                         startPoint: .top, endPoint: .bottom))
+                    .frame(width: 152, height: 268)
+                    .overlay(ViperMouseShape().stroke(Color.razerBorder, lineWidth: 1.6))
+                    .shadow(color: .black.opacity(0.6), radius: 16, y: 8)
+
+                // Separated primary buttons and the centre channel between them.
+                ViperButtonSeamShape()
+                    .stroke(Color.black.opacity(0.9), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .frame(width: 134, height: 118)
+                    .offset(y: -67)
+
+                Capsule()
+                    .fill(Color.black)
+                    .frame(width: 22, height: 56)
+                    .overlay(
+                        VStack(spacing: 4) {
+                            ForEach(0..<6, id: \.self) { _ in
+                                Capsule().fill(Color.razerTextTertiary.opacity(0.7))
+                                    .frame(width: 15, height: 2)
+                            }
+                        }
+                    )
+                    .offset(y: -80)
+
+                // Two side buttons per flank -- the Viper is ambidextrous, and
+                // that symmetry is the whole reason it has seven mappable
+                // controls rather than five.
+                buttonHotspot(.wheelClick, x: 0, y: -80, w: 38, h: 46)
+                buttonHotspot(.leftClick, x: -34, y: -76, w: 56, h: 86)
+                buttonHotspot(.rightClick, x: 34, y: -76, w: 56, h: 86)
+                // Side buttons sit on the shell itself, inside the outline --
+                // placing them beyond it left the labels clipped by the card.
+                buttonHotspot(.sideLeftForward, x: -46, y: 6, w: 36, h: 30)
+                buttonHotspot(.sideLeftBack, x: -46, y: 42, w: 36, h: 30)
+                buttonHotspot(.sideRightForward, x: 46, y: 6, w: 36, h: 30)
+                buttonHotspot(.sideRightBack, x: 46, y: 42, w: 36, h: 30)
+            }
+            .frame(width: 250, height: 300)
+        }
+        .razerCard()
     }
 
     // MARK: - Vertical Mouse Visualization

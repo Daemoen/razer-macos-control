@@ -4,6 +4,18 @@ import Darwin
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let flagIndex = CommandLine.arguments.firstIndex(of: "--render-device-art") {
+            // Offline rasterisation of the device views. Discovery is
+            // IORegistry-only; no HID device is opened and no feature report is
+            // written, so this cannot alter hardware state.
+            let outputDirectory = flagIndex + 1 < CommandLine.arguments.count
+                ? CommandLine.arguments[flagIndex + 1]
+                : NSHomeDirectory() + "/razercontrol-renders"
+            let result = DeviceArtRenderer.run(outputDirectory: outputDirectory)
+            FileHandle.standardOutput.write(Data((result.report + "\n").utf8))
+            Darwin.exit(result.passed ? EXIT_SUCCESS : EXIT_FAILURE)
+        }
+
         if CommandLine.arguments.contains("--protocol-self-test") {
             // Pure byte-layout verification. Opens no device and transmits
             // nothing, so it is safe to run against attached hardware.

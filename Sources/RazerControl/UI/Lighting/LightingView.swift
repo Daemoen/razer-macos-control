@@ -234,7 +234,7 @@ struct LightingView: View {
                 Circle().fill(Color.razerTextTertiary).frame(width: 7, height: 7)
                 Circle().fill(Color.razerTextTertiary).frame(width: 7, height: 7)
             }
-            .offset(y: -37)
+            .offset(y: -44)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -244,17 +244,17 @@ struct LightingView: View {
         return ZStack {
             ViperMouseShape()
                 .fill(LinearGradient(colors: [Color(red: 0.15, green: 0.16, blue: 0.18), .black], startPoint: .top, endPoint: .bottom))
-                .frame(width: 124, height: 136)
+                .frame(width: 84, height: 148)
                 .overlay(ViperMouseShape().stroke(Color.razerBorder, lineWidth: 2))
 
             // Viper Ultimate's separated primary buttons and center channel.
             ViperButtonSeamShape()
                 .stroke(Color.black.opacity(0.9), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .frame(width: 114, height: 68)
-                .offset(y: -32)
+                .frame(width: 74, height: 66)
+                .offset(y: -37)
             Capsule()
                 .fill(Color.black)
-                .frame(width: 16, height: 39)
+                .frame(width: 11, height: 32)
                 .overlay(
                     VStack(spacing: 3) {
                         ForEach(0..<6, id: \.self) { _ in
@@ -746,45 +746,84 @@ private struct DockPedestalShape: Shape {
     }
 }
 
-private struct ViperMouseShape: Shape {
+/// Shared with the Mouse tab so the lighting preview and the button
+/// mapper cannot drift into drawing two different mice.
+struct ViperMouseShape: Shape {
+    /// Top-down Viper Ultimate outline, drawn in normalised coordinates so it
+    /// keeps its proportions at any size.
+    ///
+    /// The previous outline used `midY` for the widest point and near-circular
+    /// control points, which produced a squat oval. A Viper is roughly 127mm
+    /// long by 66mm wide -- close to 2:1 -- and it is an ambidextrous shape:
+    /// symmetric about its long axis, gently waisted where the fingers rest,
+    /// widest a little behind centre where the palm sits.
     func path(in rect: CGRect) -> Path {
+        let w = rect.width, h = rect.height
+        func point(_ fx: CGFloat, _ fy: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + w * fx, y: rect.minY + h * fy)
+        }
+
         var path = Path()
-        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addCurve(to: CGPoint(x: rect.maxX - 3, y: rect.midY),
-                      control1: CGPoint(x: rect.maxX - 16, y: rect.minY + 2),
-                      control2: CGPoint(x: rect.maxX + 2, y: rect.minY + 42))
-        path.addCurve(to: CGPoint(x: rect.midX, y: rect.maxY),
-                      control1: CGPoint(x: rect.maxX - 7, y: rect.maxY - 30),
-                      control2: CGPoint(x: rect.maxX - 33, y: rect.maxY - 3))
-        path.addCurve(to: CGPoint(x: rect.minX + 3, y: rect.midY),
-                      control1: CGPoint(x: rect.minX + 33, y: rect.maxY - 3),
-                      control2: CGPoint(x: rect.minX + 7, y: rect.maxY - 30))
-        path.addCurve(to: CGPoint(x: rect.midX, y: rect.minY),
-                      control1: CGPoint(x: rect.minX - 2, y: rect.minY + 42),
-                      control2: CGPoint(x: rect.minX + 16, y: rect.minY + 2))
+        path.move(to: point(0.50, 0.000))
+        // Right front shoulder, then down through the waist to the palm bulge.
+        path.addCurve(to: point(0.93, 0.230),
+                      control1: point(0.76, 0.000),
+                      control2: point(0.93, 0.085))
+        path.addCurve(to: point(0.90, 0.560),
+                      control1: point(0.93, 0.360),
+                      control2: point(0.90, 0.450))
+        path.addCurve(to: point(0.86, 0.870),
+                      control1: point(0.90, 0.690),
+                      control2: point(0.93, 0.790))
+        path.addCurve(to: point(0.50, 1.000),
+                      control1: point(0.80, 0.960),
+                      control2: point(0.66, 1.000))
+        // Mirrored left side.
+        path.addCurve(to: point(0.14, 0.870),
+                      control1: point(0.34, 1.000),
+                      control2: point(0.20, 0.960))
+        path.addCurve(to: point(0.10, 0.560),
+                      control1: point(0.07, 0.790),
+                      control2: point(0.10, 0.690))
+        path.addCurve(to: point(0.07, 0.230),
+                      control1: point(0.10, 0.450),
+                      control2: point(0.07, 0.360))
+        path.addCurve(to: point(0.50, 0.000),
+                      control1: point(0.07, 0.085),
+                      control2: point(0.24, 0.000))
         path.closeSubpath()
         return path
     }
 }
 
-private struct ViperButtonSeamShape: Shape {
+/// Shared with the Mouse tab so the lighting preview and the button
+/// mapper cannot drift into drawing two different mice.
+struct ViperButtonSeamShape: Shape {
+    /// The centre channel between the two primary buttons, and the curved
+    /// break where those buttons end and the shell begins.
     func path(in rect: CGRect) -> Path {
+        let w = rect.width, h = rect.height
+        func point(_ fx: CGFloat, _ fy: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + w * fx, y: rect.minY + h * fy)
+        }
+
         var path = Path()
-        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
-        path.move(to: CGPoint(x: rect.midX - 7, y: rect.maxY))
-        path.addCurve(to: CGPoint(x: rect.minX, y: rect.maxY - 8),
-                      control1: CGPoint(x: rect.midX - 34, y: rect.maxY - 3),
-                      control2: CGPoint(x: rect.minX + 20, y: rect.maxY - 2))
-        path.move(to: CGPoint(x: rect.midX + 7, y: rect.maxY))
-        path.addCurve(to: CGPoint(x: rect.maxX, y: rect.maxY - 8),
-                      control1: CGPoint(x: rect.midX + 34, y: rect.maxY - 3),
-                      control2: CGPoint(x: rect.maxX - 20, y: rect.maxY - 2))
+        path.move(to: point(0.50, 0.02))
+        path.addLine(to: point(0.50, 0.98))
+
+        path.move(to: point(0.06, 0.86))
+        path.addCurve(to: point(0.50, 0.98),
+                      control1: point(0.18, 0.94),
+                      control2: point(0.33, 0.98))
+        path.addCurve(to: point(0.94, 0.86),
+                      control1: point(0.67, 0.98),
+                      control2: point(0.82, 0.94))
         return path
     }
 }
 
-private struct ViperGripShape: Shape {
+/// Shared with the Mouse tab so the lighting preview and the button
+struct ViperGripShape: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: CGPoint(x: rect.minX, y: rect.minY + 14))

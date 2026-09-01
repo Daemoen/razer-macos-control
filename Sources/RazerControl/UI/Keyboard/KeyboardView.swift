@@ -151,8 +151,12 @@ struct KeyboardView: View {
     /// Keeping this here prevents the two device representations from drifting.
     private var lightingLayoutPreview: some View {
         GeometryReader { geometry in
+            // The Orbweaver art canvas carries a wide empty margin around the
+            // device. Sizing the preview to the canvas rather than to the
+            // drawn content left the device floating small in the middle of the
+            // card, so the preview is sized to the content box instead.
             let designSize = isOrbweaver
-                ? CGSize(width: 690, height: 535)
+                ? CGSize(width: 512, height: 384)
                 : CGSize(width: 920, height: 235)
             let scale = min(
                 geometry.size.width / designSize.width,
@@ -167,8 +171,12 @@ struct KeyboardView: View {
             ZStack(alignment: .topLeading) {
                 Group {
                     if isOrbweaver {
-                        orbweaverKeypad
-                            .frame(width: designSize.width, height: designSize.height, alignment: .topLeading)
+                        orbweaverDeviceArt(rows: Self.orbweaverRows)
+                            .frame(width: 680, height: 465, alignment: .topLeading)
+                            .offset(x: -78, y: -38)
+                            .frame(width: designSize.width, height: designSize.height,
+                                   alignment: .topLeading)
+                            .clipped()
                     } else {
                         fullKeyboard
                             .frame(width: designSize.width, height: designSize.height, alignment: .topLeading)
@@ -248,84 +256,12 @@ struct KeyboardView: View {
     /// Factory keyboard usages emitted by the Orbweaver. Karabiner scopes the
     /// resulting mappings to the Orbweaver's vendor/product ID.
     private var orbweaverKeypad: some View {
-        let rows: [[KeyInfo]] = [
-            [KeyInfo("01", 0x35), KeyInfo("02", 0x1E), KeyInfo("03", 0x1F), KeyInfo("04", 0x20), KeyInfo("05", 0x21)],
-            [KeyInfo("06", 0x2B), KeyInfo("07", 0x14), KeyInfo("08", 0x1A), KeyInfo("09", 0x08), KeyInfo("10", 0x15)],
-            [KeyInfo("11", 0x39), KeyInfo("12", 0x04), KeyInfo("13", 0x16), KeyInfo("14", 0x07), KeyInfo("15", 0x09)],
-            [KeyInfo("16", 0xE1), KeyInfo("17", 0x1D), KeyInfo("18", 0x1B), KeyInfo("19", 0x06), KeyInfo("20", 0x19)],
-        ]
+        let rows = Self.orbweaverRows
 
         return VStack(alignment: .leading, spacing: 14) {
             RazerSectionHeader("Orbweaver Chroma", subtitle: "Click a physical control to assign its action")
-            GeometryReader { geometry in
-                let scale = min(1, geometry.size.width / 680)
-                ZStack(alignment: .topLeading) {
-                    OrbweaverWristRestShape()
-                        .fill(devicePlastic)
-                        .overlay(OrbweaverWristRestShape().stroke(Color.razerBorder, lineWidth: 1.2))
-                        .frame(width: 330, height: 118)
-                        .position(x: 250, y: 390)
-
-                    OrbweaverKeyDeckShape()
-                        .fill(devicePlastic)
-                        .overlay(OrbweaverKeyDeckShape().stroke(Color.razerBorder, lineWidth: 1.3))
-                        .shadow(color: .black.opacity(0.65), radius: 18, y: 10)
-                        .frame(width: 385, height: 278)
-                        .position(x: 250, y: 162)
-
-                    OrbweaverPalmRestShape()
-                        .fill(palmTexture)
-                        .overlay(OrbweaverPalmRestShape().stroke(Color.black.opacity(0.9), lineWidth: 2))
-                        .frame(width: 245, height: 122)
-                        .position(x: 235, y: 284)
-
-                    ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
-                        ForEach(Array(row.enumerated()), id: \.element.id) { columnIndex, key in
-                            orbweaverDeviceKey(key)
-                                .frame(width: 49, height: 45)
-                                .rotation3DEffect(.degrees(7), axis: (x: 1, y: 0, z: 0))
-                                .position(
-                                    x: 113 + CGFloat(columnIndex) * 58 + CGFloat(rowIndex) * 4,
-                                    y: 51 + CGFloat(rowIndex) * 52
-                                )
-                        }
-                    }
-
-                    OrbweaverThumbWingShape()
-                        .fill(devicePlastic)
-                        .overlay(OrbweaverThumbWingShape().stroke(Color.razerBorder, lineWidth: 1.3))
-                        .shadow(color: .black.opacity(0.55), radius: 12, y: 7)
-                        .frame(width: 190, height: 306)
-                        .position(x: 505, y: 235)
-
-                    thumbKey(KeyInfo("Thumb", 0xE2), symbol: "⌥")
-                        .frame(width: 58, height: 38)
-                        .rotationEffect(.degrees(-8))
-                        .position(x: 485, y: 123)
-
-                    orbweaverDPad
-                        .frame(width: 126, height: 126)
-                        .position(x: 510, y: 215)
-
-                    thumbKey(KeyInfo("Space", 0x2C), symbol: "Space")
-                        .frame(width: 70, height: 42)
-                        .rotationEffect(.degrees(-13))
-                        .position(x: 529, y: 338)
-
-                    HStack(spacing: 5) {
-                        ForEach(0..<3, id: \.self) { index in
-                            Circle()
-                                .fill(index == 0 ? Color.razerGreen : Color.black.opacity(0.8))
-                                .frame(width: 6, height: 6)
-                                .razerGlow(color: .razerGreen, radius: 3, isActive: index == 0)
-                        }
-                    }
-                    .position(x: 545, y: 82)
-                }
-                .frame(width: 650, height: 465)
-                .scaleEffect(scale, anchor: .topLeading)
-            }
-            .frame(height: 465)
+            orbweaverDeviceArt(rows: rows)
+                .frame(height: 465)
             Text("Factory sources: `/1/2/3/4, Tab/Q/W/E/R, Caps/A/S/D/F, Shift/Z/X/C/V; thumb pad arrows, Alt and Space")
                 .font(RazerFont.caption(10))
                 .foregroundColor(.razerTextTertiary)
@@ -349,6 +285,108 @@ struct KeyboardView: View {
             endPoint: .bottom
         )
     }
+
+    /// Device art only -- no section header, no caption.
+    ///
+    /// The lighting preview embeds this. It used to embed `orbweaverKeypad`
+    /// instead, which carried the heading and the factory-sources caption along
+    /// with it, so the RGB page showed an unreadable thumbnail of the entire
+    /// mapping screen rather than a picture of the device.
+    private func orbweaverDeviceArt(rows: [[KeyInfo]]) -> some View {
+        GeometryReader { geometry in
+            let scale = min(1, geometry.size.width / 680)
+            ZStack(alignment: .topLeading) {
+                // Single palm rest. Two overlapping rounded shapes read as a
+                // pair of blobs rather than one moulded surface.
+                OrbweaverPalmRestShape()
+                    .fill(palmTexture)
+                    .overlay(OrbweaverPalmRestShape().stroke(Color.black.opacity(0.85), lineWidth: 1.6))
+                    .shadow(color: .black.opacity(0.5), radius: 10, y: 6)
+                    .frame(width: 272, height: 116)
+                    .position(x: 224, y: 344)
+
+                // Thumb module. Positioned so its inboard edge meets the key
+                // deck; on the real device these are one moulded body, and
+                // floating them apart is what made the drawing read as two
+                // unrelated objects.
+                OrbweaverThumbWingShape()
+                    .fill(devicePlastic)
+                    .overlay(OrbweaverThumbWingShape().stroke(Color.razerBorder, lineWidth: 1.3))
+                    .shadow(color: .black.opacity(0.55), radius: 14, y: 8)
+                    .frame(width: 178, height: 292)
+                    .position(x: 498, y: 202)
+
+                thumbKey(KeyInfo("Thumb", 0xE2), symbol: "\u{2325}")
+                    .frame(width: 62, height: 38)
+                    .rotationEffect(.degrees(-7))
+                    .position(x: 486, y: 116)
+
+                orbweaverDPad
+                    .frame(width: 122, height: 122)
+                    .position(x: 497, y: 206)
+
+                thumbKey(KeyInfo("Space", 0x2C), symbol: "Space")
+                    .frame(width: 76, height: 42)
+                    .rotationEffect(.degrees(-11))
+                    .position(x: 505, y: 306)
+
+                HStack(spacing: 5) {
+                    ForEach(0..<3, id: \.self) { index in
+                        Circle()
+                            .fill(index == 0 ? Color.razerGreen : Color.black.opacity(0.8))
+                            .frame(width: 6, height: 6)
+                            .razerGlow(color: .razerGreen, radius: 3, isActive: index == 0)
+                    }
+                }
+                .position(x: 536, y: 74)
+
+                // Deck and keys tilt together as one body.
+                //
+                // Each key previously carried its own rotation3DEffect, so the
+                // keys tilted independently of the deck they sit in and read as
+                // stickers laid on top of it. Rotating the group keeps the keys
+                // fixed in their keywell. A 2D rotation also renders correctly
+                // offscreen, which a per-layer 3D transform does not.
+                ZStack(alignment: .topLeading) {
+                    OrbweaverKeyDeckShape()
+                        .fill(devicePlastic)
+                        .overlay(OrbweaverKeyDeckShape().stroke(Color.razerBorder, lineWidth: 1.3))
+                        .shadow(color: .black.opacity(0.65), radius: 18, y: 10)
+                        .frame(width: 344, height: 252)
+                        .position(x: 245, y: 175)
+
+                    ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
+                        ForEach(Array(row.enumerated()), id: \.element.id) { columnIndex, key in
+                            orbweaverDeviceKey(key)
+                                .frame(width: 50, height: 44)
+                                .position(
+                                    x: 129 + CGFloat(columnIndex) * 58,
+                                    // Columns are staggered on the real device
+                                    // so each finger reaches its own row at the
+                                    // same extension.
+                                    y: 97 + CGFloat(rowIndex) * 52
+                                       + Self.orbweaverColumnStagger[columnIndex]
+                                )
+                        }
+                    }
+                }
+                .rotationEffect(.degrees(-4), anchor: .center)
+            }
+            .frame(width: 650, height: 465)
+            .scaleEffect(scale, anchor: .topLeading)
+        }
+    }
+
+    /// Vertical offset per key column, thumb-side to little-finger-side.
+    private static let orbweaverColumnStagger: [CGFloat] = [9, 2, 0, 2, 7]
+
+    /// Factory keyboard usages the Orbweaver emits, in physical row order.
+    private static let orbweaverRows: [[KeyInfo]] = [
+        [KeyInfo("01", 0x35), KeyInfo("02", 0x1E), KeyInfo("03", 0x1F), KeyInfo("04", 0x20), KeyInfo("05", 0x21)],
+        [KeyInfo("06", 0x2B), KeyInfo("07", 0x14), KeyInfo("08", 0x1A), KeyInfo("09", 0x08), KeyInfo("10", 0x15)],
+        [KeyInfo("11", 0x39), KeyInfo("12", 0x04), KeyInfo("13", 0x16), KeyInfo("14", 0x07), KeyInfo("15", 0x09)],
+        [KeyInfo("16", 0xE1), KeyInfo("17", 0x1D), KeyInfo("18", 0x1B), KeyInfo("19", 0x06), KeyInfo("20", 0x19)],
+    ]
 
     private func orbweaverDeviceKey(_ key: KeyInfo) -> some View {
         Button { selectedKey = key; showMapperSheet = true } label: {
