@@ -41,9 +41,18 @@ enum DeviceArtRenderer {
                      + manager.devices.map { String(format: "%@ (0x%04X)", $0.name, Int($0.pid)) }
                                       .joined(separator: ", "))
 
+        // Usages to report as held, so a static render can show the press
+        // highlight. Key 08, key 13 and the D-pad Up direction.
+        let simulatedPresses: Set<UInt8> = [0x1A, 0x16, 0x52]
+
         let shots: [Shot] = [
             .init(file: "keyboard-orbweaver-config", width: 1080, height: 720, pid: 0x0207,
                   build: { AnyView(KeyboardView().environmentObject($0)) }),
+            .init(file: "keyboard-orbweaver-pressed", width: 1080, height: 720, pid: 0x0207,
+                  build: { manager in
+                      manager.pressedKeyboardUsages = simulatedPresses
+                      return AnyView(KeyboardView().environmentObject(manager))
+                  }),
             .init(file: "lighting-orbweaver", width: 1080, height: 720, pid: 0x0207,
                   build: { AnyView(LightingView().environmentObject($0)) }),
             .init(file: "keyboard-blackwidow-config", width: 1080, height: 720, pid: 0x024E,
@@ -85,6 +94,7 @@ enum DeviceArtRenderer {
                 manager.selectedDevice = device
             }
 
+            if !shot.file.hasSuffix("-pressed") { manager.pressedKeyboardUsages = [] }
             let content = shot.build(manager)
                 .frame(width: shot.width, height: shot.height)
                 .background(Color.razerBg)

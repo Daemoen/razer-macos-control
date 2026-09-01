@@ -377,8 +377,29 @@ struct KeyboardView: View {
 
     @ViewBuilder
     private func orbweaverDeviceArt(rows: [[KeyInfo]]) -> some View {
-        if let pid = deviceManager.selectedKeyboard?.pid, DeviceArt.hasArt(for: pid) {
-            // A photograph of the actual device beats any drawing of it.
+        if let pid = deviceManager.selectedKeyboard?.pid,
+           let artwork = DeviceArt.image(for: pid),
+           let hotspots = DeviceArtMap.load(productID: pid,
+                                            bundledName: DeviceArt.bundledName(for: pid)) {
+            // Artwork plus a hotspot map: the controls are live. Pressing a key
+            // on the hardware lights it here, and clicking it opens its mapping.
+            DeviceArtView(
+                image: artwork,
+                map: hotspots,
+                hidCode: { Self.orbweaverControlUsages[$0] },
+                isMapped: { id in
+                    guard let code = Self.orbweaverControlUsages[id] else { return false }
+                    return deviceManager.keyMappings[code] != nil
+                },
+                pressed: deviceManager.pressedKeyboardUsages,
+                onSelect: { id in
+                    guard let code = Self.orbweaverControlUsages[id] else { return }
+                    selectedKey = KeyInfo(id, code)
+                    showMapperSheet = true
+                }
+            )
+        } else if let pid = deviceManager.selectedKeyboard?.pid, DeviceArt.hasArt(for: pid) {
+            // Artwork with no map: a picture, but nothing on it is clickable.
             GeometryReader { geometry in
                 DeviceArt.view(for: pid,
                                maxWidth: geometry.size.width,
@@ -478,6 +499,29 @@ struct KeyboardView: View {
     /// Vertical offset per key column, thumb-side to little-finger-side.
     private static let orbweaverColumnStagger: [CGFloat] = [9, 2, 0, 2, 7]
 
+    /// The thumb module's directional controls. Declared once and used both by
+    /// the drawn fallback and by the hotspot map's identifier lookup, so the
+    /// usages cannot drift between the two representations.
+    static let orbweaverDPad: [(symbol: String, id: String, code: UInt8, dx: CGFloat, dy: CGFloat)] = [
+        ("▲", "Up",    0x52,   0, -38),
+        ("◀", "Left",  0x50, -38,   0),
+        ("▶", "Right", 0x4F,  38,   0),
+        ("▼", "Down",  0x51,   0,  38),
+    ]
+
+    /// Maps a hotspot-map control identifier to the HID usage the hardware
+    /// reports. DEVICE_ART_SPEC.md §4.5 fixes these identifiers.
+    static let orbweaverControlUsages: [String: UInt8] = {
+        var table: [String: UInt8] = [:]
+        for row in orbweaverRows {
+            for key in row { table[key.label] = key.hidCode }
+        }
+        table["Thumb"] = 0xE2
+        table["Space"] = 0x2C
+        for entry in orbweaverDPad { table[entry.id] = entry.code }
+        return table
+    }()
+
     /// Factory keyboard usages the Orbweaver emits, in physical row order.
     private static let orbweaverRows: [[KeyInfo]] = [
         [KeyInfo("01", 0x35), KeyInfo("02", 0x1E), KeyInfo("03", 0x1F), KeyInfo("04", 0x20), KeyInfo("05", 0x21)],
@@ -532,12 +576,11 @@ struct KeyboardView: View {
     private var orbweaverDPad: some View {
         ZStack {
             Circle().fill(Color.black.opacity(0.9)).overlay(Circle().strokeBorder(Color.razerBorder, lineWidth: 2)).shadow(color: .black.opacity(0.7), radius: 6, y: 4)
-            ForEach([
-                ("▲", UInt8(0x52), CGFloat(0), CGFloat(-38)),
-                ("◀", UInt8(0x50), CGFloat(-38), CGFloat(0)),
-                ("▶", UInt8(0x4F), CGFloat(38), CGFloat(0)),
-                ("▼", UInt8(0x51), CGFloat(0), CGFloat(38)),
-            ], id: \.1) { symbol, code, x, y in
+            ForEach(Self.orbweaverDPad, id: \.code) { entry in
+                let symbol = entry.symbol
+                let code = entry.code
+                let x = entry.dx
+                let y = entry.dy
                 let key = KeyInfo(symbol, code)
                 let isPressed = deviceManager.pressedKeyboardUsages.contains(code)
                 Button { selectedKey = key; showMapperSheet = true } label: {

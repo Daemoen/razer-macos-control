@@ -15,7 +15,7 @@ import AppKit
 /// Devices without a photograph fall through to the drawn representation.
 enum DeviceArt {
     private static let byProductID: [UInt16: String] = [
-        0x0207: "orbweaver",        // Orbweaver Chroma
+        0x0207: "0207",             // Orbweaver Chroma -- clean-room schematic + hotspot map
         0x0208: "tartarus",         // Tartarus V2
         0x0244: "tartarus",         // Tartarus Pro -- same shell
         0x007B: "viper-ultimate",   // Viper Ultimate (wireless)
@@ -67,6 +67,12 @@ enum DeviceArt {
               let loaded = NSImage(contentsOf: url) else { return nil }
         cache[key] = loaded
         return Image(nsImage: loaded)
+    }
+
+    /// Basename of the shipped asset, if any. The hotspot map is looked up
+    /// under the same name so artwork and map always travel together.
+    static func bundledName(for productID: UInt16) -> String? {
+        byProductID[productID]
     }
 
     static func hasArt(for productID: UInt16) -> Bool {
