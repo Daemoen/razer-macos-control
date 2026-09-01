@@ -31,7 +31,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Closing the window must NOT quit the app.
+    ///
+    /// The controller owns the connection that keeps the input daemon's seize
+    /// alive. Quitting drops that connection, the daemon releases the keypad,
+    /// and every mapping silently reverts to factory behaviour. Returning true
+    /// here meant closing the window mid-game disabled remapping. Quit with
+    /// Command-Q when you actually want the keypad back to stock.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        false
     }
 }
