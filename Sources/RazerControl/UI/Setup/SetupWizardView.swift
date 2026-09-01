@@ -216,14 +216,22 @@ struct SetupWizardView: View {
                 .font(RazerFont.title(20))
                 .foregroundColor(.razerTextPrimary)
 
-            Text("Karabiner-Elements handles device-specific button mapping.\nRazerControl configures it automatically.")
+            Text("Keypad remapping runs natively through the RazerControl input daemon.\nKarabiner-Elements is still used for mouse buttons only.")
                 .font(RazerFont.body(13))
                 .foregroundColor(.razerTextSecondary)
                 .multilineTextAlignment(.center)
 
             VStack(spacing: 12) {
                 statusRow(
-                    "Karabiner-Elements",
+                    "Keypad Input (native)",
+                    value: deviceManager.isNativeInputActive ? "Active"
+                         : deviceManager.isNativeInputInstalled ? "Daemon installed, not connected"
+                         : "Daemon not installed",
+                    ok: deviceManager.isNativeInputActive
+                )
+
+                statusRow(
+                    "Mouse Buttons (Karabiner)",
                     value: deviceManager.isKarabinerReady ? "Ready" : "Open Karabiner once",
                     ok: deviceManager.isKarabinerReady
                 )
@@ -317,13 +325,15 @@ struct SetupWizardView: View {
                 statusRow("Devices", value: "\(deviceManager.devices.count) connected",
                           ok: deviceManager.hasDevices)
                 statusRow("RGB Lighting", value: "Ready", ok: true)
-                statusRow("Button Mapping", value: deviceManager.isKarabinerReady ? "Ready" : "Karabiner needed",
+                statusRow("Keypad Mapping", value: deviceManager.isNativeInputActive ? "Native, active" : "Native, inactive",
+                          ok: deviceManager.isNativeInputActive)
+                statusRow("Mouse Buttons", value: deviceManager.isKarabinerReady ? "Ready" : "Karabiner needed",
                           ok: deviceManager.isKarabinerReady)
             }
             .padding(.horizontal, 60)
 
             if !deviceManager.isKarabinerReady {
-                Text("Open Karabiner-Elements once, complete its macOS setup, then return here.")
+                Text("Mouse buttons only: open Karabiner-Elements once, complete its macOS setup, then return here. The keypad does not need it.")
                     .font(RazerFont.caption(11))
                     .foregroundColor(.razerTextTertiary)
                     .multilineTextAlignment(.center)

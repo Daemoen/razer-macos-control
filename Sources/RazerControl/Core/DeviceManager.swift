@@ -267,14 +267,14 @@ class DeviceManager: ObservableObject {
     var hasDevices: Bool { !devices.isEmpty }
     var isKarabinerReady: Bool { karabinerBackend.isConfigured }
 
-    func installNativeInputService() {
-        privilegedInput.install()
+    /// Installing a root daemon requires privilege the app does not and should
+    /// not hold. Installation is an explicit administrator action performed by
+    /// Scripts/install-daemon.sh; the app only re-attempts the connection.
+    func reconnectNativeInput() {
+        privilegedInput.reconnect()
     }
 
-    func uninstallNativeInputService() {
-        nativeRemapper.releaseAll()
-        privilegedInput.uninstall()
-    }
+    var isNativeInputInstalled: Bool { privilegedInput.isDaemonInstalled }
 
     // MARK: - Key Mapping
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 enum AppTab: String, CaseIterable {
     case keyboard = "Keyboard"
@@ -142,19 +143,28 @@ struct MainView: View {
                 }
                 .padding(.horizontal, 16)
 
-                if !deviceManager.isNativeInputActive,
-                   deviceManager.devices.contains(where: { $0.pid == 0x0207 }) {
-                    Button("Enable Native Input") {
-                        deviceManager.installNativeInputService()
+                if !deviceManager.isNativeInputActive {
+                    VStack(spacing: 4) {
+                        Button(deviceManager.isNativeInputInstalled
+                               ? "Reconnect Input Daemon"
+                               : "Input Daemon Not Installed") {
+                            deviceManager.reconnectNativeInput()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(!deviceManager.isNativeInputInstalled)
+
+                        // The daemon runs as root and cannot raise the Input
+                        // Monitoring prompt itself, so the user has to be taken
+                        // to the pane manually.
+                        Button("Open Input Monitoring Settings") {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                } else if deviceManager.isNativeInputActive {
-                    Button("Disable Native Input") {
-                        deviceManager.uninstallNativeInputService()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
 
                 if let err = deviceManager.lastError {

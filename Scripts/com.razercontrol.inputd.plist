@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.razercontrol.inputd</string>
+
+    <!-- Absolute path outside any user-writable bundle. A root job must not
+         execute code an unprivileged user can replace, and TCC keys Input
+         Monitoring approval on this exact path. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Library/Application Support/RazerControl/RazerControlInputHelper</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- The daemon blocks waiting for a console user and for the controller
+         bundle rather than exiting, so it should not normally respawn. The
+         throttle is a backstop against a tight crash loop. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Interactive keeps the job off the low-priority background band; HID
+         event forwarding is latency-sensitive. -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+
+    <key>StandardErrorPath</key>
+    <string>/var/log/razercontrol-inputd.log</string>
+</dict>
+</plist>

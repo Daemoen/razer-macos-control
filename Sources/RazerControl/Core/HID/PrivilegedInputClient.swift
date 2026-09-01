@@ -1,36 +1,80 @@
 import Foundation
 import AppKit
-import ServiceManagement
 import RazerControlIPC
 import Darwin
 
+/// Controller-side half of the privileged input channel.
+///
+/// The daemon is a classic root LaunchDaemon installed by `Scripts/install-daemon.sh`,
+/// not an `SMAppService` job. That is deliberate. `SMAppService.daemon` registers a
+/// job whose executable lives inside the application bundle, which means a root
+/// process executing from a user-writable path, and it keys approval on
+/// Background Task Management state that an app cannot inspect or repair when it
+/// desynchronises. Karabiner-Elements and RustDesk both avoid it for the same
+/// reasons. Consequently this type never registers, unregisters, or approves
+/// anything — installation is an explicit privileged action, and the controller's
+/// only job is to connect, authenticate, and report.
 @MainActor
 final class PrivilegedInputClient: ObservableObject {
+    enum State: Equatable {
+        case notInstalled
+        case connecting
+        case active
+        case failed(String)
+    }
+
     @Published private(set) var isActive = false
-    @Published private(set) var serviceStatus: SMAppService.Status = .notRegistered
+    @Published private(set) var state: State = .notInstalled
     @Published private(set) var error: String?
+
     var onKeyboardUsage: ((UInt8, Bool) -> Void)?
 
-    private let service = SMAppService.daemon(plistName: "com.razercontrol.input-helper.plist")
-    private let registeredBuildKey = "RazerControlInputServiceRegisteredBuild"
     private let ioQueue = DispatchQueue(label: "com.razercontrol.input-client.socket")
     private var socketFD: Int32 = -1
+    /// Invalidates in-flight socket work when a newer connect supersedes it.
     private var generation = UUID()
     private var activationObserver: NSObjectProtocol?
 
+    /// True when the daemon plist is present. Absence is a distinct, actionable
+    /// state from "installed but not reachable" and must not be collapsed into it.
+    var isDaemonInstalled: Bool {
+        FileManager.default.fileExists(atPath: razerInputDaemonPlistPath)
+    }
+
+    /// The `--native-input-self-test` entry point drives its own connection.
+    /// SwiftUI still constructs the whole object graph in that mode, so without
+    /// this guard the UI layer would open a second connection from the same
+    /// process, take the daemon's single exclusive-owner slot, and leave the
+    /// self-test's own connection waiting until it timed out. The failure
+    /// presented as a hung daemon; it was the app competing with itself.
+    private static let isSelfTestProcess =
+        CommandLine.arguments.contains("--native-input-self-test")
+
     init() {
+        guard !Self.isSelfTestProcess else { return }
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                guard let self else { return }
-                self.refreshStatus()
-                if self.serviceStatus == .enabled, !self.isActive { self.connect() }
+                guard let self, !self.isActive else { return }
+                self.connect()
             }
         }
     }
 
-    func start() { refreshStatus(); if serviceStatus == .enabled { connect() } }
+    deinit {
+        if let activationObserver {
+            NotificationCenter.default.removeObserver(activationObserver)
+        }
+    }
+
+    func start() {
+        guard !Self.isSelfTestProcess else { return }
+        connect()
+    }
+
+    /// Explicit user-driven retry.
+    func reconnect() { connect() }
 
     func stop() {
         generation = UUID()
@@ -40,72 +84,44 @@ final class PrivilegedInputClient: ObservableObject {
         isActive = false
     }
 
-    func install() {
-        refreshStatus()
-        do {
-            let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
-            let registeredBuild = UserDefaults.standard.string(forKey: registeredBuildKey)
-            if serviceStatus == .enabled, registeredBuild == build {
-                error = nil
-                connect()
-                return
-            }
-            if serviceStatus == .enabled {
-                // launchd snapshots the plist at registration. Refresh it when
-                // a new signed bundle changes the daemon definition.
-                try service.unregister()
-                refreshStatus()
-            }
-            try service.register()
-            UserDefaults.standard.set(build, forKey: registeredBuildKey)
-            error = nil
-        } catch { self.error = "Native input registration failed: \(error.localizedDescription)" }
-        refreshStatus()
-        if serviceStatus == .enabled { connect() }
-        else if serviceStatus == .requiresApproval {
-            error = "Approve RazerControl under Login Items, then reopen the app"
-            SMAppService.openSystemSettingsLoginItems()
-        }
-    }
-
-    func uninstall() {
-        stop()
-        do {
-            try service.unregister()
-            UserDefaults.standard.removeObject(forKey: registeredBuildKey)
-            error = nil
-        }
-        catch { self.error = "Native input removal failed: \(error.localizedDescription)" }
-        refreshStatus()
-    }
-
-    func refreshStatus() { serviceStatus = service.status }
-
     private func connect() {
         stop()
-        error = "Waiting for RazerControl Input Service"
+
+        guard isDaemonInstalled else {
+            state = .notInstalled
+            error = "Input daemon is not installed. Run Scripts/install-daemon.sh."
+            return
+        }
+
+        state = .connecting
+        error = nil
         let currentGeneration = generation
+
         ioQueue.async { [weak self] in
             guard let self else { return }
+            // The daemon waits for a console user before binding, so a cold boot
+            // can legitimately take a few seconds. 40 x 250ms = 10s.
             for _ in 0..<40 {
                 guard let fd = Self.openSocket() else { usleep(250_000); continue }
                 Task { @MainActor in
                     guard self.generation == currentGeneration else { close(fd); return }
                     self.socketFD = fd
-                    self.error = nil
                 }
                 do {
                     try Self.write(.init(kind: .hello), to: fd)
                     self.readLoop(fd: fd, generation: currentGeneration)
                     return
-                } catch { close(fd) }
+                } catch {
+                    close(fd)
+                }
                 usleep(250_000)
             }
             Task { @MainActor in
                 guard self.generation == currentGeneration else { return }
-                self.error = "Native input connection failed: input service socket unavailable"
-                self.isActive = false
                 self.socketFD = -1
+                self.isActive = false
+                self.state = .failed("Input daemon is installed but not responding.")
+                self.error = "Input daemon is installed but not responding. Check: sudo launchctl print system/\(razerInputDaemonLabel)"
             }
         }
     }
@@ -117,6 +133,7 @@ final class PrivilegedInputClient: ObservableObject {
             let count = read(fd, &bytes, bytes.count)
             if count <= 0 { break }
             buffer.append(bytes, count: count)
+            if buffer.count > 65_536 { break }
             while let newline = buffer.firstIndex(of: 0x0a) {
                 let line = buffer[..<newline]
                 buffer.removeSubrange(...newline)
@@ -129,22 +146,54 @@ final class PrivilegedInputClient: ObservableObject {
             guard let self, self.generation == generation else { return }
             self.socketFD = -1
             self.isActive = false
-            if self.error == nil { self.error = "RazerControl Input Service disconnected" }
+            if case .failed = self.state {} else {
+                self.state = .failed("Input daemon disconnected.")
+                self.error = "Input daemon disconnected."
+            }
         }
     }
 
     private func receive(_ message: RazerInputMessage, generation: UUID) {
         guard self.generation == generation else { return }
         switch message.kind {
-        case .ready: isActive = true; error = nil
+        case .ready:
+            isActive = true
+            state = .active
+            error = nil
+
         case .event:
             guard let usage = message.usage.flatMap(UInt8.init(exactly:)),
                   let pressed = message.pressed else { return }
             onKeyboardUsage?(usage, pressed)
-        case .error: isActive = false; error = message.message ?? "Input service error"
-        default: break
+
+        case .error:
+            isActive = false
+            let text = Self.remediation(for: message)
+            state = .failed(text)
+            error = text
+
+        default:
+            break
         }
     }
+
+    /// The daemon sends a stable code alongside prose so the controller can give
+    /// the user the one instruction that actually resolves their case.
+    private static func remediation(for message: RazerInputMessage) -> String {
+        let detail = message.message ?? "Input daemon error"
+        switch message.code {
+        case RazerInputErrorCode.inputMonitoringDenied:
+            return detail + " (the daemon runs as root and cannot raise this prompt itself)"
+        case RazerInputErrorCode.deviceAbsent:
+            return detail + " Connect the keypad, then press Reconnect."
+        case RazerInputErrorCode.protocolMismatch:
+            return detail
+        default:
+            return detail
+        }
+    }
+
+    // MARK: - Socket primitives
 
     nonisolated private static func openSocket() -> Int32? {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -155,7 +204,10 @@ final class PrivilegedInputClient: ObservableObject {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let path = Array(razerInputSocketPath.utf8CString)
-        guard path.count <= MemoryLayout.size(ofValue: address.sun_path) else { close(fd); return nil }
+        guard path.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+            close(fd)
+            return nil
+        }
         withUnsafeMutableBytes(of: &address.sun_path) { destination in
             destination.initializeMemory(as: UInt8.self, repeating: 0)
             path.withUnsafeBytes { source in destination.copyBytes(from: source) }
@@ -176,7 +228,9 @@ final class PrivilegedInputClient: ObservableObject {
             var offset = 0
             while offset < buffer.count {
                 let count = Darwin.write(fd, base.advanced(by: offset), buffer.count - offset)
-                guard count > 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+                guard count > 0 else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
                 offset += count
             }
         }
