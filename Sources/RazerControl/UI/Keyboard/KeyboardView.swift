@@ -274,13 +274,14 @@ struct KeyboardView: View {
                 // hardware and the list beside it does the work. That also fills
                 // the empty half of a landscape card, which a portrait photo
                 // leaves bare.
-                HStack(alignment: .top, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        RazerSectionHeader("Orbweaver Chroma", subtitle: "Your device")
-                        orbweaverDeviceArt(rows: rows)
-                            .frame(width: 330, height: 440)
-                    }
-                    orbweaverKeyList(rows: rows)
+                // The controls are on the artwork, so the artwork gets the room.
+                // A parallel list would be a second place to edit the same
+                // thing, which is what it was standing in for before.
+                VStack(alignment: .leading, spacing: 10) {
+                    RazerSectionHeader("Orbweaver Chroma",
+                                       subtitle: "Click a control to assign it. Press one to find it.")
+                    orbweaverDeviceArt(rows: rows)
+                        .frame(maxWidth: .infinity, minHeight: 560, maxHeight: 620)
                 }
             } else {
                 RazerSectionHeader("Orbweaver Chroma", subtitle: "Click a physical control to assign its action")
@@ -318,36 +319,7 @@ struct KeyboardView: View {
     /// with it, so the RGB page showed an unreadable thumbnail of the entire
     /// mapping screen rather than a picture of the device.
     /// Every assignable control, in physical order, with its current mapping.
-    private func orbweaverKeyList(rows: [[KeyInfo]]) -> some View {
-        let thumbControls = [
-            KeyInfo("Thumb", 0xE2), KeyInfo("Space", 0x2C),
-            KeyInfo("Up", 0x52), KeyInfo("Down", 0x51),
-            KeyInfo("Left", 0x50), KeyInfo("Right", 0x4F),
-        ]
-
-        return VStack(alignment: .leading, spacing: 10) {
-            RazerSectionHeader("Controls", subtitle: "Click any control to assign its action")
-
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(rows.flatMap { $0 }) { key in
-                        orbweaverKeyRow(key, caption: "Key")
-                    }
-                    Divider()
-                        .background(Color.razerBorder)
-                        .padding(.vertical, 6)
-                    ForEach(thumbControls) { key in
-                        orbweaverKeyRow(key, caption: "Thumb")
-                    }
-                }
-            }
-            .frame(maxHeight: 430)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .razerCard()
-    }
-
-    private func orbweaverKeyRow(_ key: KeyInfo, caption: String) -> some View {
+private func orbweaverKeyRow(_ key: KeyInfo, caption: String) -> some View {
         let mapped = deviceManager.keyMappings[key.hidCode] != nil
         return Button { selectedKey = key; showMapperSheet = true } label: {
             HStack(spacing: 10) {
@@ -390,6 +362,15 @@ struct KeyboardView: View {
                 isMapped: { id in
                     guard let code = Self.orbweaverControlUsages[id] else { return false }
                     return deviceManager.keyMappings[code] != nil
+                },
+                // Only the numbered keys are lettered. The thumb button, the
+                // space paddle and the four directional controls carry no
+                // marking on the hardware, and the artwork's orientation arrow
+                // already says which way the thumb cap is mounted.
+                label: { id in Self.orbweaverUnlabelledControls.contains(id) ? "" : id },
+                assignment: { id in
+                    guard let code = Self.orbweaverControlUsages[id] else { return "" }
+                    return orbweaverAssignment(for: KeyInfo(id, code))
                 },
                 pressed: deviceManager.pressedKeyboardUsages,
                 onSelect: { id in
@@ -508,6 +489,14 @@ struct KeyboardView: View {
         ("▶", "Right", 0x4F,  38,   0),
         ("▼", "Down",  0x51,   0,  38),
     ]
+
+    /// What to print on a control. Directional controls carry an arrow rather
+    /// than a word: their hotspots are a fraction of a keycap's size, and an
+    /// arrow reads instantly where "Down" has to wrap and shrink to fit.
+    /// Controls that carry no printed marking on the hardware, and so carry
+    /// none here either.
+    static let orbweaverUnlabelledControls: Set<String> =
+        Set(orbweaverDPad.map(\.id)).union(["Thumb", "Space"])
 
     /// Maps a hotspot-map control identifier to the HID usage the hardware
     /// reports. DEVICE_ART_SPEC.md §4.5 fixes these identifiers.

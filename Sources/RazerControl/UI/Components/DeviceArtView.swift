@@ -22,6 +22,12 @@ struct DeviceArtView: View {
     /// Controls that currently carry a user mapping.
     let isMapped: (String) -> Bool
 
+    /// Short label printed on the control -- its number or name.
+    let label: (String) -> String
+
+    /// The control's current binding, printed beneath the label.
+    let assignment: (String) -> String
+
     /// Usages currently held down on the hardware.
     let pressed: Set<UInt8>
 
@@ -69,26 +75,68 @@ struct DeviceArtView: View {
             ? min(frame.width, frame.height) / 2
             : max(3, min(frame.width, frame.height) * 0.18)
 
-        RoundedRectangle(cornerRadius: radius)
-            .fill(fillColour(pressed: isPressed, hovered: isHovered, mapped: mapped))
-            .overlay(
+        // Type scales with the control so the same artwork stays legible whether
+        // it is drawn in the configuration pane or a thumbnail preview.
+        let titleSize = max(6, min(15, frame.height * 0.30))
+        let valueSize = max(5, min(11, frame.height * 0.21))
+        let showValue = frame.height >= 26
+
+        // A Button rather than a tap gesture: a shape filled with .clear does
+        // not take hits on its own, and Button is the pattern already proven
+        // elsewhere in this view layer.
+        Button { onSelect(control.id) } label: {
+            ZStack {
                 RoundedRectangle(cornerRadius: radius)
-                    .strokeBorder(strokeColour(pressed: isPressed,
-                                               hovered: isHovered,
-                                               mapped: mapped),
-                                  lineWidth: isPressed ? 2.5 : (isHovered ? 1.8 : 1.2))
-            )
-            // The glow is what makes a press read instantly at a glance;
-            // a border alone is too quiet against dark artwork.
-            .shadow(color: isPressed ? Color.razerGreen.opacity(0.9) : .clear,
-                    radius: isPressed ? 10 : 0)
+                    .fill(fillColour(pressed: isPressed, hovered: isHovered, mapped: mapped))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: radius)
+                            .strokeBorder(strokeColour(pressed: isPressed,
+                                                       hovered: isHovered,
+                                                       mapped: mapped),
+                                          lineWidth: isPressed ? 2.5 : (isHovered ? 1.8 : 1.2))
+                    )
+
+                let title = label(control.id)
+                VStack(spacing: 0) {
+                    if !title.isEmpty {
+                        Text(title)
+                            .font(.system(size: titleSize, weight: .bold, design: .rounded))
+                            .foregroundColor(isPressed ? .black : .razerTextPrimary)
+                        if showValue {
+                            Text(assignment(control.id))
+                                .font(.system(size: valueSize, weight: .medium, design: .rounded))
+                                .foregroundColor(isPressed ? .black.opacity(0.75)
+                                                 : (mapped ? .razerGreen : .razerTextTertiary))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.5)
+                        }
+                    }
+                }
+                .padding(.horizontal, 2)
+                // The artwork carries its own moulding lines and legends. A
+                // slight scrim keeps the label readable where it lands on one,
+                // without hiding the control underneath it.
+                .background(
+                    RoundedRectangle(cornerRadius: radius * 0.7)
+                        .fill(Color.black.opacity(title.isEmpty || isPressed ? 0 : 0.42))
+                        .blur(radius: 2)
+                        .padding(-1)
+                )
+                .shadow(color: .black.opacity(title.isEmpty || isPressed ? 0 : 0.8), radius: 1.5)
+            }
             .frame(width: frame.width, height: frame.height)
-            .offset(x: frame.minX, y: frame.minY)
-            .animation(.easeOut(duration: isPressed ? 0.04 : 0.16), value: isPressed)
             .contentShape(RoundedRectangle(cornerRadius: radius))
-            .onHover { hovered = $0 ? control.id : (hovered == control.id ? nil : hovered) }
-            .onTapGesture { onSelect(control.id) }
-            .help(control.id)
+        }
+        .buttonStyle(.plain)
+        .shadow(color: isPressed ? Color.razerGreen.opacity(0.9) : .clear,
+                radius: isPressed ? 10 : 0)
+        .offset(x: frame.minX, y: frame.minY)
+        .animation(.easeOut(duration: isPressed ? 0.04 : 0.16), value: isPressed)
+        .onHover { inside in
+            if inside { hovered = control.id }
+            else if hovered == control.id { hovered = nil }
+        }
+        .help("\(label(control.id)) — \(assignment(control.id))")
     }
 
     private func fillColour(pressed: Bool, hovered: Bool, mapped: Bool) -> Color {
