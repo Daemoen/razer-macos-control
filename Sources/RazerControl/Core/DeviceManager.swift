@@ -139,8 +139,39 @@ class DeviceManager: ObservableObject {
     private let inputMonitor = RazerHIDInputMonitor()
     private var cancellables = Set<AnyCancellable>()
 
-    private static let keyMappingsKey = "SavedKeyMappings"
-    private static let mouseMappingsKey = "SavedMouseMappings"
+    // Mappings belong to a device, not to the application.
+    //
+    // They were previously one dictionary keyed by HID usage with no device
+    // dimension at all, so plugging in a second keypad inherited the first
+    // one's bindings wholesale. That is not merely untidy: the Orbweaver's top
+    // row begins with a backtick and the Tartarus's begins with 1, so the two
+    // decks are offset by one key, and five bindings would land on their
+    // neighbour's key without anything appearing to be wrong.
+    private static func keyMappingsKey(for productID: UInt16) -> String {
+        String(format: "SavedKeyMappings.%04x", productID)
+    }
+
+    private static func mouseMappingsKey(for productID: UInt16) -> String {
+        String(format: "SavedMouseMappings.%04x", productID)
+    }
+
+    /// The original device-less entries. Left in place permanently as a backup;
+    /// nothing reads them after the migration and nothing overwrites them.
+    private static let legacyKeyMappingsKey = "SavedKeyMappings"
+    private static let legacyMouseMappingsKey = "SavedMouseMappings"
+    private static let migrationFlagKey = "MappingsMigratedToPerDevice"
+
+    /// Devices that inherit the pre-migration bindings. Those bindings were
+    /// authored on the Orbweaver; the Tartarus is included because its rows two
+    /// through four are identical to the Orbweaver's, so every binding lands on
+    /// the same physical key. Bindings for keys the Tartarus lacks simply never
+    /// match anything.
+    private static let legacyKeypadInheritors: [UInt16] = [0x0207, 0x022B, 0x0208, 0x0244]
+    private static let legacyMouseInheritors: [UInt16] = [0x007B, 0x007C]
+
+    /// Which device the in-memory mappings currently belong to.
+    private var loadedKeyboardPID: UInt16?
+    private var loadedMousePID: UInt16?
 
     init() {
         // Observe HID manager for device changes
@@ -182,8 +213,14 @@ class DeviceManager: ObservableObject {
 
         privilegedInput.start()
 
-        // Load saved mappings
-        loadMappings()
+        Self.migrateLegacyMappingsIfNeeded()
+
+        // Mappings follow the selected device, so they load when one is chosen
+        // rather than at construction.
+        $selectedDevice
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshMappingsForSelection() }
+            .store(in: &cancellables)
     }
 
     // MARK: - Scanning
@@ -353,26 +390,65 @@ class DeviceManager: ObservableObject {
     private func saveMappings() {
         let encoder = JSONEncoder()
 
-        // Save key mappings (convert UInt8 keys to String for JSON)
-        let keyDict = Dictionary(uniqueKeysWithValues: keyMappings.map { (String($0.key), $0.value) })
-        if let data = try? encoder.encode(keyDict) {
-            UserDefaults.standard.set(data, forKey: Self.keyMappingsKey)
+        if let pid = loadedKeyboardPID {
+            let keyDict = Dictionary(uniqueKeysWithValues: keyMappings.map { (String($0.key), $0.value) })
+            if let data = try? encoder.encode(keyDict) {
+                UserDefaults.standard.set(data, forKey: Self.keyMappingsKey(for: pid))
+            }
         }
 
-        // Save mouse mappings (convert Int keys to String for JSON)
-        let mouseDict = Dictionary(uniqueKeysWithValues: mouseMappings.map { (String($0.key), $0.value) })
-        if let data = try? encoder.encode(mouseDict) {
-            UserDefaults.standard.set(data, forKey: Self.mouseMappingsKey)
+        if let pid = loadedMousePID {
+            let mouseDict = Dictionary(uniqueKeysWithValues: mouseMappings.map { (String($0.key), $0.value) })
+            if let data = try? encoder.encode(mouseDict) {
+                UserDefaults.standard.set(data, forKey: Self.mouseMappingsKey(for: pid))
+            }
         }
 
         print("[DeviceManager] Saved \(keyMappings.count) key + \(mouseMappings.count) mouse mappings")
     }
 
+    /// Copies the pre-migration bindings to each device that should inherit
+    /// them. Runs once. The original entries are never modified, so the old
+    /// configuration remains recoverable.
+    private static func migrateLegacyMappingsIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: migrationFlagKey) else { return }
+
+        if let legacy = defaults.data(forKey: legacyKeyMappingsKey) {
+            for pid in legacyKeypadInheritors where defaults.data(forKey: keyMappingsKey(for: pid)) == nil {
+                defaults.set(legacy, forKey: keyMappingsKey(for: pid))
+            }
+        }
+        if let legacy = defaults.data(forKey: legacyMouseMappingsKey) {
+            for pid in legacyMouseInheritors where defaults.data(forKey: mouseMappingsKey(for: pid)) == nil {
+                defaults.set(legacy, forKey: mouseMappingsKey(for: pid))
+            }
+        }
+        defaults.set(true, forKey: migrationFlagKey)
+        print("[DeviceManager] Migrated shared mappings to per-device storage")
+    }
+
+    /// Reloads mappings when the selected keyboard or mouse changes, writing
+    /// the outgoing device's bindings back first.
+    private func refreshMappingsForSelection() {
+        let keyboardPID = selectedKeyboard?.pid
+        let mousePID = selectedMouse?.pid
+        guard keyboardPID != loadedKeyboardPID || mousePID != loadedMousePID else { return }
+        saveMappings()
+        loadedKeyboardPID = keyboardPID
+        loadedMousePID = mousePID
+        loadMappings()
+    }
+
     private func loadMappings() {
         let decoder = JSONDecoder()
 
+        keyMappings = [:]
+        mouseMappings = [:]
+
         // Load key mappings
-        if let data = UserDefaults.standard.data(forKey: Self.keyMappingsKey),
+        if let pid = loadedKeyboardPID,
+           let data = UserDefaults.standard.data(forKey: Self.keyMappingsKey(for: pid)),
            let dict = try? decoder.decode([String: KeyAction].self, from: data) {
             keyMappings = Dictionary(uniqueKeysWithValues: dict.compactMap { k, v in
                 UInt8(k).map { ($0, v) }
@@ -381,7 +457,8 @@ class DeviceManager: ObservableObject {
         }
 
         // Load mouse mappings
-        if let data = UserDefaults.standard.data(forKey: Self.mouseMappingsKey),
+        if let pid = loadedMousePID,
+           let data = UserDefaults.standard.data(forKey: Self.mouseMappingsKey(for: pid)),
            let dict = try? decoder.decode([String: KeyAction].self, from: data) {
             mouseMappings = Dictionary(uniqueKeysWithValues: dict.compactMap { k, v in
                 Int(k).map { ($0, v) }

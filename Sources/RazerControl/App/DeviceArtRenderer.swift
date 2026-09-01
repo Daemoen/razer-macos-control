@@ -64,6 +64,17 @@ enum DeviceArtRenderer {
             .init(file: "lighting-orbweaver-wave-b", width: 1080, height: 720, pid: 0x0207,
                   build: { AnyView(LightingView(previewEffect: .wave, previewPhase: 1.1)
                                     .environmentObject($0)) }),
+            .init(file: "keyboard-tartarus-config", width: 1080, height: 720, pid: 0x022B,
+                  build: { AnyView(KeyboardView().environmentObject($0)) }),
+            .init(file: "keyboard-tartarus-pressed", width: 1080, height: 720, pid: 0x022B,
+                  build: { manager in
+                      // Key 13 (S) and the up direction, as pressed on hardware.
+                      manager.pressedKeyboardUsages = [0x16, 0x52]
+                      return AnyView(KeyboardView().environmentObject(manager))
+                  }),
+            .init(file: "lighting-tartarus-wave", width: 1080, height: 720, pid: 0x022B,
+                  build: { AnyView(LightingView(previewEffect: .wave, previewPhase: 0.4)
+                                    .environmentObject($0)) }),
             .init(file: "keyboard-blackwidow-config", width: 1080, height: 720, pid: 0x024E,
                   build: { AnyView(KeyboardView().environmentObject($0)) }),
             .init(file: "lighting-blackwidow", width: 1080, height: 720, pid: 0x024E,

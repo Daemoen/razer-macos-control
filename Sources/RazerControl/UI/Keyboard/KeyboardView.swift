@@ -113,8 +113,11 @@ struct KeyboardView: View {
         self.lightingPreviewColor = lightingPreviewColor
     }
 
+    /// Devices drawn as a keypad rather than a full keyboard.
+    static let keypadProductIDs: Set<UInt16> = [0x0207, 0x022B, 0x0208, 0x0244]
+
     private var isOrbweaver: Bool {
-        deviceManager.selectedKeyboard?.pid == 0x0207
+        (deviceManager.selectedKeyboard?.pid).map { Self.keypadProductIDs.contains($0) } ?? false
     }
 
     private var isBlackWidowV3: Bool {
@@ -278,17 +281,17 @@ struct KeyboardView: View {
                 // A parallel list would be a second place to edit the same
                 // thing, which is what it was standing in for before.
                 VStack(alignment: .leading, spacing: 10) {
-                    RazerSectionHeader("Orbweaver Chroma",
+                    RazerSectionHeader(deviceManager.selectedKeyboard?.name ?? "Keypad",
                                        subtitle: "Click a control to assign it. Press one to find it.")
                     orbweaverDeviceArt(rows: rows)
                         .frame(maxWidth: .infinity, minHeight: 560, maxHeight: 620)
                 }
             } else {
-                RazerSectionHeader("Orbweaver Chroma", subtitle: "Click a physical control to assign its action")
+                RazerSectionHeader(deviceManager.selectedKeyboard?.name ?? "Keypad", subtitle: "Click a physical control to assign its action")
                 orbweaverDeviceArt(rows: rows)
                     .frame(height: 465)
             }
-            Text("Factory sources: `/1/2/3/4, Tab/Q/W/E/R, Caps/A/S/D/F, Shift/Z/X/C/V; thumb pad arrows, Alt and Space")
+            Text(keypadFactoryLegend)
                 .font(RazerFont.caption(10))
                 .foregroundColor(.razerTextTertiary)
         }
@@ -358,23 +361,23 @@ private func orbweaverKeyRow(_ key: KeyInfo, caption: String) -> some View {
             DeviceArtView(
                 image: artwork,
                 map: hotspots,
-                hidCode: { Self.orbweaverControlUsages[$0] },
+                hidCode: { Self.controlUsages(for: pid)[$0] },
                 isMapped: { id in
-                    guard let code = Self.orbweaverControlUsages[id] else { return false }
+                    guard let code = Self.controlUsages(for: pid)[id] else { return false }
                     return deviceManager.keyMappings[code] != nil
                 },
                 // Only the numbered keys are lettered. The thumb button, the
                 // space paddle and the four directional controls carry no
                 // marking on the hardware, and the artwork's orientation arrow
                 // already says which way the thumb cap is mounted.
-                label: { id in Self.orbweaverUnlabelledControls.contains(id) ? "" : id },
+                label: { id in Self.unlabelledControls(for: pid).contains(id) ? "" : id },
                 assignment: { id in
-                    guard let code = Self.orbweaverControlUsages[id] else { return "" }
+                    guard let code = Self.controlUsages(for: pid)[id] else { return "" }
                     return orbweaverAssignment(for: KeyInfo(id, code))
                 },
                 pressed: deviceManager.pressedKeyboardUsages,
                 onSelect: { id in
-                    guard let code = Self.orbweaverControlUsages[id] else { return }
+                    guard let code = Self.controlUsages(for: pid)[id] else { return }
                     selectedKey = KeyInfo(id, code)
                     showMapperSheet = true
                 }
@@ -493,6 +496,47 @@ private func orbweaverKeyRow(_ key: KeyInfo, caption: String) -> some View {
     /// What to print on a control. Directional controls carry an arrow rather
     /// than a word: their hotspots are a fraction of a keycap's size, and an
     /// arrow reads instantly where "Down" has to wrap and shrink to fit.
+    /// What each device emits before remapping. The two decks differ in their
+    /// first row and in the fourth row's width, which is exactly the detail a
+    /// user needs when their bindings do not behave as expected.
+    private var keypadFactoryLegend: String {
+        switch deviceManager.selectedKeyboard?.pid {
+        case 0x0207:
+            return "Factory sources: `/1/2/3/4, Tab/Q/W/E/R, Caps/A/S/D/F, Shift/Z/X/C/V; thumb pad arrows, Alt and Space"
+        default:
+            return "Factory sources: 1/2/3/4/5, Tab/Q/W/E/R, Caps/A/S/D/F, Shift/Z/X/C; thumb pad arrows, Alt, and Space on 20"
+        }
+    }
+
+    /// The Tartarus deck, verified against hardware.
+    ///
+    /// It is NOT the Orbweaver's deck. The Orbweaver's top row begins with a
+    /// backtick; the Tartarus's begins with 1, so the whole first row is offset
+    /// by one and rows two through four then realign. Its fourth row is four
+    /// keys rather than five, and its "20" is the thumb paddle -- Space --
+    /// rather than a deck key.
+    static let tartarusControlUsages: [String: UInt8] = [
+        "01": 0x1E, "02": 0x1F, "03": 0x20, "04": 0x21, "05": 0x22,
+        "06": 0x2B, "07": 0x14, "08": 0x1A, "09": 0x08, "10": 0x15,
+        "11": 0x39, "12": 0x04, "13": 0x16, "14": 0x07, "15": 0x09,
+        "16": 0xE1, "17": 0x1D, "18": 0x1B, "19": 0x06,
+        "20": 0x2C,
+        "Thumb": 0xE2,
+        "Up": 0x52, "Down": 0x51, "Left": 0x50, "Right": 0x4F,
+    ]
+
+    static func controlUsages(for productID: UInt16) -> [String: UInt8] {
+        productID == 0x0207 ? orbweaverControlUsages : tartarusControlUsages
+    }
+
+    /// The Tartarus prints 20 on its paddle, so unlike the Orbweaver's blank
+    /// Space bar it is labelled.
+    static func unlabelledControls(for productID: UInt16) -> Set<String> {
+        productID == 0x0207
+            ? orbweaverUnlabelledControls
+            : Set(orbweaverDPad.map(\.id)).union(["Thumb"])
+    }
+
     /// Controls that carry no printed marking on the hardware, and so carry
     /// none here either.
     static let orbweaverUnlabelledControls: Set<String> =

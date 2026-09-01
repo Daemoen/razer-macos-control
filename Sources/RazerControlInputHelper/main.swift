@@ -5,11 +5,16 @@ import Security
 import SystemConfiguration
 import Darwin
 
-// Razer Orbweaver Chroma. The daemon deliberately captures exactly one device
-// class: seizing an interface is a destructive act for every other consumer of
-// that device, so the match is narrow and explicit rather than discovered.
+// Seizing an interface is destructive for every other consumer of that device,
+// so the match stays an explicit list rather than anything discovered at run
+// time. A device absent from this list is untouched by the daemon.
 private let razerVendorID = 0x1532
-private let orbweaverProductID = 0x0207
+private let capturedProductIDs: [(id: Int, name: String)] = [
+    (0x0207, "Orbweaver Chroma"),
+    (0x022B, "Tartarus V2"),
+    (0x0208, "Tartarus V2 (alt)"),
+    (0x0244, "Tartarus Pro"),
+]
 private let hidUsagePageGenericDesktop = 0x01
 private let hidUsageKeyboard = 0x06
 private let hidUsagePageKeyboard: UInt32 = 0x07
@@ -293,20 +298,22 @@ final class InputService {
         NSLog("[razer-inputd] Input Monitoring advisory state: %@", accessName)
 
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        let match: [String: Any] = [
-            kIOHIDVendorIDKey as String: razerVendorID,
-            kIOHIDProductIDKey as String: orbweaverProductID,
-            kIOHIDDeviceUsagePageKey as String: hidUsagePageGenericDesktop,
-            kIOHIDDeviceUsageKey as String: hidUsageKeyboard,
-        ]
-        IOHIDManagerSetDeviceMatching(manager, match as CFDictionary)
+        let matches: [[String: Any]] = capturedProductIDs.map { entry in
+            [
+                kIOHIDVendorIDKey as String: razerVendorID,
+                kIOHIDProductIDKey as String: entry.id,
+                kIOHIDDeviceUsagePageKey as String: hidUsagePageGenericDesktop,
+                kIOHIDDeviceUsageKey as String: hidUsageKeyboard,
+            ]
+        }
+        IOHIDManagerSetDeviceMatchingMultiple(manager, matches as CFArray)
 
         // IOHIDManagerOpen succeeds with zero matched devices, so absence has to
         // be detected separately or the controller would sit waiting for events
         // that can never arrive.
         let matched = (IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>)?.count ?? 0
         guard matched > 0 else {
-            return ("Razer Orbweaver Chroma is not connected.",
+            return ("No supported Razer keypad is connected.",
                     RazerInputErrorCode.deviceAbsent)
         }
 
@@ -343,7 +350,7 @@ final class InputService {
         }
 
         self.manager = manager
-        NSLog("[razer-inputd] Seized Orbweaver (%d interface(s))", matched)
+        NSLog("[razer-inputd] Seized keypad (%d interface(s))", matched)
         return nil
     }
 
@@ -358,8 +365,13 @@ final class InputService {
         // carries a correct pressed/released state.
         guard IOHIDElementGetUsagePage(element) == hidUsagePageKeyboard,
               usage > 0x03, usage <= UInt32(UInt8.max) else { return }
-        service.send(.init(kind: .event, usage: Int(usage),
-                           pressed: IOHIDValueGetIntegerValue(value) != 0))
+        let isDown = IOHIDValueGetIntegerValue(value) != 0
+        // Logged so an unknown control can be identified by pressing it. The
+        // volume is one line per keypress, which the unified log absorbs
+        // without trouble and which is the only way to learn what a control
+        // actually reports rather than assuming.
+        NSLog("[razer-inputd] usage=0x%02X %@", usage, isDown ? "down" : "up")
+        service.send(.init(kind: .event, usage: Int(usage), pressed: isDown))
     }
 
     // MARK: - Teardown

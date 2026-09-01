@@ -221,6 +221,16 @@ final class DeviceDatabase {
             zones: kbZones, matrix: (5, 22), macroKeys: 20
         ))
 
+        // Tartarus V2 as it actually enumerates on hardware here. The 0x0208
+        // entry below is retained: both identifiers are in circulation.
+        register(RazerDeviceInfo(
+            pid: 0x022B, name: "Tartarus V2", type: .keyboard,
+            features: [.staticEffect, .breathingEffect, .waveEffect, .spectrumEffect,
+                       .matrixRGB, .brightnessCtrl, .macroKeys],
+            proto: .extended, txId: 0x1F,
+            zones: kbZones, matrix: (4, 5), macroKeys: 20
+        ))
+
         // Tartarus V2
         register(RazerDeviceInfo(
             pid: 0x0208, name: "Tartarus V2", type: .keyboard,
