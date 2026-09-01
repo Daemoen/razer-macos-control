@@ -176,3 +176,65 @@ struct DeviceArtView: View {
                    width: width, height: height)
     }
 }
+
+/// The lighting preview: the device artwork with each control lit individually.
+///
+/// The previous preview multiplied one colour over the whole shrunken picture,
+/// which tinted the chassis, the palm rest and the background along with the
+/// keys and could not show an effect *travelling*. A wave is a wave because
+/// adjacent keys differ in phase; a single tint has no phase to differ.
+///
+/// Each control is lit from its own position in the artwork, so the effect
+/// crosses the key grid the way it does on the hardware. Position drives it
+/// rather than a row/column index, which means this works for any device whose
+/// map has coordinates -- including the thumb module, which sits at an angle
+/// and has no row or column.
+struct DeviceArtLightingPreview: View {
+    let image: Image
+    let map: DeviceArtMap
+
+    /// Colour for a control, given its centre in normalised image coordinates.
+    let colour: (Double, Double) -> Color
+
+    /// 0...1, the brightness slider.
+    let brightness: Double
+
+    var body: some View {
+        GeometryReader { geometry in
+            let fit = DeviceArtView.fit(image: map.imageSize,
+                                        into: geometry.size,
+                                        aspect: map.aspect)
+
+            ZStack(alignment: .topLeading) {
+                image
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: fit.width, height: fit.height)
+                    .offset(x: fit.x, y: fit.y)
+
+                ForEach(map.controls) { control in
+                    if let bounds = control.bounds(aspect: map.aspect) {
+                        let frame = CGRect(x: fit.x + bounds.minX * fit.width,
+                                           y: fit.y + bounds.minY * fit.height,
+                                           width: bounds.width * fit.width,
+                                           height: bounds.height * fit.height)
+                        let radius: CGFloat = control.shape == .circle
+                            ? min(frame.width, frame.height) / 2
+                            : max(2, min(frame.width, frame.height) * 0.20)
+
+                        RoundedRectangle(cornerRadius: radius)
+                            .fill(colour(bounds.midX, bounds.midY).opacity(brightness))
+                            // Additive, so it reads as light coming out of the
+                            // key rather than paint laid over it.
+                            .blendMode(.plusLighter)
+                            .blur(radius: max(0.5, min(frame.width, frame.height) * 0.10))
+                            .frame(width: frame.width, height: frame.height)
+                            .offset(x: frame.minX, y: frame.minY)
+                    }
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height,
+                   alignment: .topLeading)
+        }
+    }
+}

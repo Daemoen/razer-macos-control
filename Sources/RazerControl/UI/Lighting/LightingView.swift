@@ -11,6 +11,14 @@ struct LightingView: View {
     @State private var selectedZone: LightingZone = .all
     @State private var hexColor: String = "#00FF00"
     @State private var animationPhase: Double = 0
+
+    /// Seeds the effect and its animation phase. Only the offscreen renderer
+    /// passes these: a still frame cannot show an effect travelling, so a
+    /// review render has to be able to freeze one mid-sweep.
+    init(previewEffect: LightingEffect? = nil, previewPhase: Double? = nil) {
+        if let previewEffect { _selectedEffect = State(initialValue: previewEffect) }
+        if let previewPhase { _animationPhase = State(initialValue: previewPhase) }
+    }
     @State private var applyStatus: String?
     @State private var transactionLog: String?
 
@@ -126,7 +134,7 @@ struct LightingView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(previewGradient)
-                    .frame(height: 180)
+                    .frame(height: previewHeight)
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
                             .strokeBorder(Color.razerBorder, lineWidth: 1)
@@ -138,6 +146,14 @@ struct LightingView: View {
             }
         }
         .razerCard()
+    }
+
+    /// Portrait keypad artwork needs the room; a mouse or headset does not.
+    private var previewHeight: CGFloat {
+        guard let pid = deviceManager.selectedDevice?.pid,
+              DeviceArt.hasArt(for: pid),
+              deviceManager.selectedDevice?.type == .keyboard else { return 180 }
+        return 300
     }
 
     @ViewBuilder
@@ -158,11 +174,24 @@ struct LightingView: View {
         }
     }
 
+    @ViewBuilder
     private var keyboardPreview: some View {
-        KeyboardView(
-            isLightingPreview: true,
-            lightingPreviewColor: keyColor(row: 2, col: 7).opacity(brightness)
-        )
+        if let pid = deviceManager.selectedDevice?.pid,
+           let artwork = DeviceArt.image(for: pid),
+           let hotspots = DeviceArtMap.load(productID: pid,
+                                            bundledName: DeviceArt.bundledName(for: pid)) {
+            // Light each control from its own position, so an effect crosses
+            // the keys instead of tinting the whole picture.
+            DeviceArtLightingPreview(image: artwork,
+                                     map: hotspots,
+                                     colour: { u, v in keyColour(u: u, v: v) },
+                                     brightness: brightness)
+        } else {
+            KeyboardView(
+                isLightingPreview: true,
+                lightingPreviewColor: keyColor(row: 2, col: 7).opacity(brightness)
+            )
+        }
     }
 
     private var headsetPreview: some View {
@@ -296,6 +325,38 @@ struct LightingView: View {
             startPoint: .top,
             endPoint: .bottom
         )
+    }
+
+    /// Colour for a control at a normalised position in the artwork.
+    ///
+    /// The grid-indexed version below cannot describe the thumb module, which
+    /// sits at an angle and belongs to no row or column. Position works for
+    /// every control on any device.
+    private func keyColour(u: Double, v: Double) -> Color {
+        switch selectedEffect {
+        case .static_:
+            return primaryColor
+        case .breathing:
+            let phase = sin(animationPhase * 2) * 0.5 + 0.5
+            return primaryColor.opacity(phase)
+        case .wave:
+            // Travel is left to right with a slight downward lean, matching the
+            // hardware. The multipliers put roughly one full hue sweep across
+            // the width of the key grid.
+            let offset = u * 1.4 + v * 0.35
+            let hue = (animationPhase * 0.3 + offset).truncatingRemainder(dividingBy: 1.0)
+            return Color(hue: abs(hue), saturation: 1.0, brightness: 1.0)
+        case .spectrum:
+            let hue = animationPhase.truncatingRemainder(dividingBy: 1.0)
+            return Color(hue: abs(hue), saturation: 1.0, brightness: 1.0)
+        case .reactive:
+            return primaryColor.opacity(0.3)
+        case .starlight:
+            let twinkle = sin(animationPhase * 3 + u * 37 + v * 17) > 0.7 ? 1.0 : 0.1
+            return primaryColor.opacity(twinkle)
+        case .off:
+            return Color.clear
+        }
     }
 
     private func keyColor(row: Int, col: Int) -> Color {

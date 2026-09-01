@@ -55,6 +55,15 @@ enum DeviceArtRenderer {
                   }),
             .init(file: "lighting-orbweaver", width: 1080, height: 720, pid: 0x0207,
                   build: { AnyView(LightingView().environmentObject($0)) }),
+            // Two frames of the same wave, a third of a cycle apart. If the
+            // effect really crosses the keys these differ per key; a whole-image
+            // tint would differ only in overall hue.
+            .init(file: "lighting-orbweaver-wave-a", width: 1080, height: 720, pid: 0x0207,
+                  build: { AnyView(LightingView(previewEffect: .wave, previewPhase: 0.0)
+                                    .environmentObject($0)) }),
+            .init(file: "lighting-orbweaver-wave-b", width: 1080, height: 720, pid: 0x0207,
+                  build: { AnyView(LightingView(previewEffect: .wave, previewPhase: 1.1)
+                                    .environmentObject($0)) }),
             .init(file: "keyboard-blackwidow-config", width: 1080, height: 720, pid: 0x024E,
                   build: { AnyView(KeyboardView().environmentObject($0)) }),
             .init(file: "lighting-blackwidow", width: 1080, height: 720, pid: 0x024E,
