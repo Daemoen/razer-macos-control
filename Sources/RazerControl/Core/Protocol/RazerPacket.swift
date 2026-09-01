@@ -72,12 +72,21 @@ struct RazerPacket {
         data = [UInt8](repeating: 0, count: Self.packetSize)
     }
 
-    init(transactionId: UInt8, commandClass: RazerCommandClass, commandId: UInt8, args: [UInt8] = []) {
+    /// - Parameter dataSize: the payload length the *protocol* declares for this
+    ///   command, which is not always the number of bytes we happen to set.
+    ///   Several Razer commands declare a longer payload than they populate and
+    ///   leave the remainder zero — the extended wave, spectrum and off effects
+    ///   all declare 0x06 while setting at most five bytes. Inferring this field
+    ///   from `args.count` under-declares those commands and the device does not
+    ///   act on them. Defaults to `args.count`, which is correct wherever the
+    ///   declared size and the populated length coincide.
+    init(transactionId: UInt8, commandClass: RazerCommandClass, commandId: UInt8,
+         args: [UInt8] = [], dataSize: UInt8? = nil) {
         data = [UInt8](repeating: 0, count: Self.packetSize)
         self.transactionId = transactionId
         self.commandClass = commandClass.rawValue
         self.commandId = commandId
-        self.dataSize = UInt8(args.count)
+        self.dataSize = dataSize ?? UInt8(args.count)
         for (i, arg) in args.enumerated() where i < Self.maxPayloadSize {
             data[8 + i] = arg
         }
@@ -229,19 +238,36 @@ extension RazerPacket {
         )
     }
 
-    /// Wave effect. Speed: 0x01=fastest, 0xFF=slowest. Default 0x60 is medium.
+    /// Wave effect.
+    ///
+    /// Layout and declared size follow OpenRazer's
+    /// `razer_chroma_extended_matrix_effect_wave`, which is the reference this
+    /// device database was derived from:
+    ///
+    ///     base(arg_size: 0x06, varstore, led, effect: 0x04)
+    ///     arguments[3] = direction
+    ///     arguments[4] = 0x28
+    ///
+    /// Two things matter here. The declared payload is **0x06** even though only
+    /// five bytes are populated; declaring 0x05 leaves the device ignoring the
+    /// command or acting on a different effect. And the speed byte is a fixed
+    /// 0x28 — these devices do not expose a controllable wave speed, so a value
+    /// derived from a UI slider is at best ignored.
+    static let extendedWaveSpeed: UInt8 = 0x28
+
     static func extendedWave(
         led: RazerLED = .backlight,
         direction: RazerWaveDirection = .leftToRight,
-        speed: UInt8 = 0x60,
+        speed: UInt8 = RazerPacket.extendedWaveSpeed,
         transactionId: UInt8 = RazerTransactionID.standard.rawValue
     ) -> RazerPacket {
-        // V4 Pro format: [storage, led, effect, direction, speed]
         RazerPacket(
             transactionId: transactionId,
             commandClass: .extended,
             commandId: RazerCmd.extEffect,
-            args: [RazerLEDStorage.variableStore.rawValue, led.rawValue, RazerExtendedEffect.wave.rawValue, direction.rawValue, speed]
+            args: [RazerLEDStorage.variableStore.rawValue, led.rawValue,
+                   RazerExtendedEffect.wave.rawValue, direction.rawValue, speed],
+            dataSize: 0x06
         )
     }
 
@@ -253,7 +279,9 @@ extension RazerPacket {
             transactionId: transactionId,
             commandClass: .extended,
             commandId: RazerCmd.extEffect,
-            args: [RazerLEDStorage.variableStore.rawValue, led.rawValue, RazerExtendedEffect.spectrum.rawValue]
+            // razer_chroma_extended_matrix_effect_spectrum declares 0x06.
+            args: [RazerLEDStorage.variableStore.rawValue, led.rawValue, RazerExtendedEffect.spectrum.rawValue],
+            dataSize: 0x06
         )
     }
 
@@ -265,7 +293,9 @@ extension RazerPacket {
             transactionId: transactionId,
             commandClass: .extended,
             commandId: RazerCmd.extEffect,
-            args: [RazerLEDStorage.variableStore.rawValue, led.rawValue, RazerExtendedEffect.off.rawValue]
+            // razer_chroma_extended_matrix_effect_none declares 0x06.
+            args: [RazerLEDStorage.variableStore.rawValue, led.rawValue, RazerExtendedEffect.off.rawValue],
+            dataSize: 0x06
         )
     }
 

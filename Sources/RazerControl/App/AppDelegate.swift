@@ -4,6 +4,14 @@ import Darwin
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if CommandLine.arguments.contains("--protocol-self-test") {
+            // Pure byte-layout verification. Opens no device and transmits
+            // nothing, so it is safe to run against attached hardware.
+            let result = ProtocolSelfTest.run()
+            FileHandle.standardOutput.write(Data((result.report + "\n").utf8))
+            Darwin.exit(result.passed ? EXIT_SUCCESS : EXIT_FAILURE)
+        }
+
         if CommandLine.arguments.contains("--native-input-self-test") {
             DispatchQueue.global(qos: .userInitiated).async {
                 let result = NativeInputSelfTest.run()
