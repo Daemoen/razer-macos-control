@@ -42,21 +42,21 @@ enum DeviceArtRenderer {
                                       .joined(separator: ", "))
 
         let shots: [Shot] = [
-            .init(file: "keyboard-orbweaver-config", width: 1000, height: 700, pid: 0x0207,
+            .init(file: "keyboard-orbweaver-config", width: 1080, height: 720, pid: 0x0207,
                   build: { AnyView(KeyboardView().environmentObject($0)) }),
-            .init(file: "lighting-orbweaver", width: 1000, height: 700, pid: 0x0207,
+            .init(file: "lighting-orbweaver", width: 1080, height: 720, pid: 0x0207,
                   build: { AnyView(LightingView().environmentObject($0)) }),
-            .init(file: "keyboard-blackwidow-config", width: 1200, height: 700, pid: 0x024E,
+            .init(file: "keyboard-blackwidow-config", width: 1080, height: 720, pid: 0x024E,
                   build: { AnyView(KeyboardView().environmentObject($0)) }),
-            .init(file: "lighting-blackwidow", width: 1000, height: 700, pid: 0x024E,
+            .init(file: "lighting-blackwidow", width: 1080, height: 720, pid: 0x024E,
                   build: { AnyView(LightingView().environmentObject($0)) }),
-            .init(file: "mouse-viper-config", width: 1000, height: 700, pid: 0x007B,
+            .init(file: "mouse-viper-config", width: 1080, height: 720, pid: 0x007B,
                   build: { AnyView(MouseView().environmentObject($0)) }),
-            .init(file: "lighting-viper", width: 1000, height: 700, pid: 0x007B,
+            .init(file: "lighting-viper", width: 1080, height: 720, pid: 0x007B,
                   build: { AnyView(LightingView().environmentObject($0)) }),
-            .init(file: "lighting-dock", width: 1000, height: 700, pid: 0x007E,
+            .init(file: "lighting-dock", width: 1080, height: 720, pid: 0x007E,
                   build: { AnyView(LightingView().environmentObject($0)) }),
-            .init(file: "lighting-kraken", width: 1000, height: 700, pid: 0x0F19,
+            .init(file: "lighting-kraken", width: 1080, height: 720, pid: 0x0F19,
                   build: { AnyView(LightingView().environmentObject($0)) }),
         ]
 
@@ -64,11 +64,23 @@ enum DeviceArtRenderer {
 
         for shot in shots {
             if let pid = shot.pid {
-                guard let device = manager.devices.first(where: { $0.pid == pid }) else {
-                    lines.append(String(format: "  SKIP  %@ (0x%04X not connected)",
+                // Prefer the real attached device, but fall back to a stand-in
+                // built from the device database. Layout does not depend on the
+                // hardware being present, and requiring it means a view cannot
+                // be reviewed whenever the peripheral is unplugged -- or, for a
+                // device we are adding support for, has never been plugged in.
+                let device = manager.devices.first(where: { $0.pid == pid })
+                    ?? Self.standIn(for: pid)
+                guard let device else {
+                    lines.append(String(format: "  SKIP  %@ (0x%04X unknown to the device database)",
                                         shot.file, Int(pid)))
                     skipped += 1
                     continue
+                }
+                if !manager.devices.contains(where: { $0.pid == pid }) {
+                    lines.append(String(format: "  note  0x%04X not attached; rendering from database",
+                                        Int(pid)))
+                    manager.devices.append(device)
                 }
                 manager.selectedDevice = device
             }
@@ -113,6 +125,18 @@ enum DeviceArtRenderer {
         lines.append("Wrote \(wrote), blank \(blank), skipped \(skipped) -> \(outputDirectory)")
         // Any blank is a failure of the tool, not of the art.
         return (wrote > 0 && blank == 0, lines.joined(separator: "\n"))
+    }
+
+    /// A ConnectedDevice assembled from the database rather than from USB.
+    /// Carries no HID interfaces, so it can describe a device but not talk to
+    /// one -- which is all a layout render needs.
+    private static func standIn(for productID: UInt16) -> ConnectedDevice? {
+        guard let info = DeviceDatabase.shared.lookup(pid: productID) else { return nil }
+        let placeholder = RazerHIDDevice(vendorId: 0x1532,
+                                         productId: productID,
+                                         productName: info.name,
+                                         serialNumber: "render-only")
+        return ConnectedDevice(hidDevice: placeholder, info: info)
     }
 
     /// Renders through a real NSHostingView inside an offscreen window.

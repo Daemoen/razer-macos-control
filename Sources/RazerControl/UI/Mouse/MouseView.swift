@@ -77,7 +77,23 @@ struct MouseView: View {
     /// and it sat in the `else` branch, so an ambidextrous Viper got a bare
     /// table with no picture. The shapes are shared with the lighting preview
     /// so the two views cannot drift into drawing two different mice.
+    @ViewBuilder
     private var viperMouseVisualization: some View {
+        if let pid = deviceManager.selectedMouse?.pid, DeviceArt.hasArt(for: pid) {
+            VStack(spacing: 10) {
+                RazerSectionHeader("Viper Ultimate", subtitle: "Click a button to assign its action")
+                ZStack {
+                    DeviceArt.view(for: pid, maxWidth: 220, maxHeight: 300)
+                }
+                .frame(width: 250, height: 300)
+            }
+            .razerCard()
+        } else {
+            drawnViperVisualization
+        }
+    }
+
+    private var drawnViperVisualization: some View {
         VStack(spacing: 10) {
             RazerSectionHeader("Viper Ultimate", subtitle: "Click a button to assign its action")
 

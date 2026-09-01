@@ -155,8 +155,9 @@ struct KeyboardView: View {
             // device. Sizing the preview to the canvas rather than to the
             // drawn content left the device floating small in the middle of the
             // card, so the preview is sized to the content box instead.
+            let hasPhoto = (deviceManager.selectedKeyboard?.pid).map { DeviceArt.hasArt(for: $0) } ?? false
             let designSize = isOrbweaver
-                ? CGSize(width: 512, height: 384)
+                ? (hasPhoto ? CGSize(width: 766, height: 1022) : CGSize(width: 512, height: 384))
                 : CGSize(width: 920, height: 235)
             let scale = min(
                 geometry.size.width / designSize.width,
@@ -171,12 +172,17 @@ struct KeyboardView: View {
             ZStack(alignment: .topLeading) {
                 Group {
                     if isOrbweaver {
-                        orbweaverDeviceArt(rows: Self.orbweaverRows)
-                            .frame(width: 680, height: 465, alignment: .topLeading)
-                            .offset(x: -78, y: -38)
-                            .frame(width: designSize.width, height: designSize.height,
-                                   alignment: .topLeading)
-                            .clipped()
+                        if hasPhoto {
+                            orbweaverDeviceArt(rows: Self.orbweaverRows)
+                                .frame(width: designSize.width, height: designSize.height)
+                        } else {
+                            orbweaverDeviceArt(rows: Self.orbweaverRows)
+                                .frame(width: 680, height: 465, alignment: .topLeading)
+                                .offset(x: -78, y: -38)
+                                .frame(width: designSize.width, height: designSize.height,
+                                       alignment: .topLeading)
+                                .clipped()
+                        }
                     } else {
                         fullKeyboard
                             .frame(width: designSize.width, height: designSize.height, alignment: .topLeading)
@@ -258,10 +264,29 @@ struct KeyboardView: View {
     private var orbweaverKeypad: some View {
         let rows = Self.orbweaverRows
 
+        let usesPhoto = (deviceManager.selectedKeyboard?.pid).map { DeviceArt.hasArt(for: $0) } ?? false
+
         return VStack(alignment: .leading, spacing: 14) {
-            RazerSectionHeader("Orbweaver Chroma", subtitle: "Click a physical control to assign its action")
-            orbweaverDeviceArt(rows: rows)
-                .frame(height: 465)
+            if usesPhoto {
+                // A photograph cannot carry hit targets the way the drawn deck
+                // did -- the device sits at an angle and its keys do not line up
+                // with any grid we could overlay. So the picture identifies the
+                // hardware and the list beside it does the work. That also fills
+                // the empty half of a landscape card, which a portrait photo
+                // leaves bare.
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        RazerSectionHeader("Orbweaver Chroma", subtitle: "Your device")
+                        orbweaverDeviceArt(rows: rows)
+                            .frame(width: 330, height: 440)
+                    }
+                    orbweaverKeyList(rows: rows)
+                }
+            } else {
+                RazerSectionHeader("Orbweaver Chroma", subtitle: "Click a physical control to assign its action")
+                orbweaverDeviceArt(rows: rows)
+                    .frame(height: 465)
+            }
             Text("Factory sources: `/1/2/3/4, Tab/Q/W/E/R, Caps/A/S/D/F, Shift/Z/X/C/V; thumb pad arrows, Alt and Space")
                 .font(RazerFont.caption(10))
                 .foregroundColor(.razerTextTertiary)
@@ -292,7 +317,80 @@ struct KeyboardView: View {
     /// instead, which carried the heading and the factory-sources caption along
     /// with it, so the RGB page showed an unreadable thumbnail of the entire
     /// mapping screen rather than a picture of the device.
+    /// Every assignable control, in physical order, with its current mapping.
+    private func orbweaverKeyList(rows: [[KeyInfo]]) -> some View {
+        let thumbControls = [
+            KeyInfo("Thumb", 0xE2), KeyInfo("Space", 0x2C),
+            KeyInfo("Up", 0x52), KeyInfo("Down", 0x51),
+            KeyInfo("Left", 0x50), KeyInfo("Right", 0x4F),
+        ]
+
+        return VStack(alignment: .leading, spacing: 10) {
+            RazerSectionHeader("Controls", subtitle: "Click any control to assign its action")
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(rows.flatMap { $0 }) { key in
+                        orbweaverKeyRow(key, caption: "Key")
+                    }
+                    Divider()
+                        .background(Color.razerBorder)
+                        .padding(.vertical, 6)
+                    ForEach(thumbControls) { key in
+                        orbweaverKeyRow(key, caption: "Thumb")
+                    }
+                }
+            }
+            .frame(maxHeight: 430)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .razerCard()
+    }
+
+    private func orbweaverKeyRow(_ key: KeyInfo, caption: String) -> some View {
+        let mapped = deviceManager.keyMappings[key.hidCode] != nil
+        return Button { selectedKey = key; showMapperSheet = true } label: {
+            HStack(spacing: 10) {
+                Text(key.label)
+                    .font(RazerFont.body(12))
+                    .foregroundColor(.razerTextPrimary)
+                    .frame(width: 52, alignment: .leading)
+                Text(caption)
+                    .font(RazerFont.caption(9))
+                    .foregroundColor(.razerTextTertiary)
+                    .frame(width: 40, alignment: .leading)
+                Text(orbweaverAssignment(for: key))
+                    .font(RazerFont.mono(11))
+                    .foregroundColor(mapped ? .razerGreen : .razerTextSecondary)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text("Edit")
+                    .font(RazerFont.caption(10))
+                    .foregroundColor(.razerGreen)
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
     private func orbweaverDeviceArt(rows: [[KeyInfo]]) -> some View {
+        if let pid = deviceManager.selectedKeyboard?.pid, DeviceArt.hasArt(for: pid) {
+            // A photograph of the actual device beats any drawing of it.
+            GeometryReader { geometry in
+                DeviceArt.view(for: pid,
+                               maxWidth: geometry.size.width,
+                               maxHeight: geometry.size.height)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+            }
+        } else {
+            drawnOrbweaverArt(rows: rows)
+        }
+    }
+
+    private func drawnOrbweaverArt(rows: [[KeyInfo]]) -> some View {
         GeometryReader { geometry in
             let scale = min(1, geometry.size.width / 680)
             ZStack(alignment: .topLeading) {

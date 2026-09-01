@@ -239,7 +239,16 @@ struct LightingView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    @ViewBuilder
     private var mousePreview: some View {
+        if let pid = deviceManager.selectedDevice?.pid, DeviceArt.hasArt(for: pid) {
+            DeviceArt.view(for: pid, maxWidth: 300, maxHeight: 150)
+        } else {
+            drawnMousePreview
+        }
+    }
+
+    private var drawnMousePreview: some View {
         let glow = keyColor(row: 2, col: 5).opacity(brightness)
         return ZStack {
             ViperMouseShape()
