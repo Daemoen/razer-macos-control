@@ -161,6 +161,32 @@ enum RazerButtonAction {
     case mouseButton(UInt8)
     case keyboardKey(UInt8)
 
+    /// Stable form for persistence. The app cannot read an assignment back
+    /// off the device, so what it last wrote is the only record that exists.
+    var descriptor: String {
+        switch self {
+        case .mouseButton(let button): return "mouse:\(button)"
+        case .keyboardKey(let usage): return "kb:\(usage)"
+        }
+    }
+
+    init?(descriptor: String) {
+        let parts = descriptor.split(separator: ":")
+        guard parts.count == 2, let value = UInt8(parts[1]) else { return nil }
+        switch parts[0] {
+        case "mouse": self = .mouseButton(value)
+        case "kb": self = .keyboardKey(value)
+        default: return nil
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .mouseButton(let button): return "Mouse \(button)"
+        case .keyboardKey(let usage): return KeyCodeMap.hidKeyName(usage)
+        }
+    }
+
     var payload: [UInt8] {
         switch self {
         case .mouseButton(let button):

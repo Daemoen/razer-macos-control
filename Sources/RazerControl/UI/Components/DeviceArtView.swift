@@ -130,7 +130,16 @@ struct DeviceArtView: View {
         .buttonStyle(.plain)
         .shadow(color: isPressed ? Color.razerGreen.opacity(0.9) : .clear,
                 radius: isPressed ? 10 : 0)
-        .offset(x: frame.minX, y: frame.minY)
+        // Placed rather than offset. `offset` moves what is drawn while the
+        // view keeps the layout slot it was given, and in a ZStack every
+        // hotspot is given the same slot at the top-leading corner -- so the
+        // picture looked right while clicks were resolved against seven
+        // rectangles piled on top of each other. Clicking to the left of the
+        // left button reached the right button's sheet, which is exactly the
+        // shape that produces. `position` places the view in the parent's
+        // coordinate space, so what is drawn and what is clickable are the
+        // same rectangle.
+        .position(x: frame.midX, y: frame.midY)
         .animation(.easeOut(duration: isPressed ? 0.04 : 0.16), value: isPressed)
         .onHover { inside in
             if inside { hovered = control.id }

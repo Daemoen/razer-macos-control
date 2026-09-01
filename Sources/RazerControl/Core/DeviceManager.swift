@@ -132,6 +132,15 @@ class DeviceManager: ObservableObject {
 
     /// Active mouse button mappings: button number → action
     @Published var mouseMappings: [Int: KeyAction] = [:]
+
+    /// What each side-button slot was last told to emit.
+    ///
+    /// The device has no readback we have found, so this is what the app wrote
+    /// rather than what the mouse currently holds. Anything that changes the
+    /// assignment elsewhere -- Synapse on another machine, a reconnect that
+    /// drops back to on-board state -- makes this stale, so it is presented as
+    /// the last applied setting and never as an observed one.
+    @Published var sideButtonAssignments: [UInt8: RazerButtonAction] = [:]
     @Published var isMouseRemappingActive = false
 
     private let hidManager = RazerHIDManager()
@@ -260,6 +269,96 @@ class DeviceManager: ObservableObject {
         (.rightFront, 0x6B),   // F16
     ]
 
+    /// The half-and-half arrangement: modifiers on the left flank, factory
+    /// mouse buttons on the right.
+    ///
+    /// This is what the mouse was carrying before this app could write to it,
+    /// and it is a real position rather than a historical curiosity -- the two
+    /// modifier buttons are reachable from RazerControl while the right pair
+    /// keep working natively for browser back and forward with nothing running.
+    /// Someone who wants two configurable buttons without giving up the two
+    /// that already work wants exactly this.
+    static let sideButtonModifierPreset: [(slot: RazerButtonSlot, action: RazerButtonAction)] = [
+        (.leftFront, .keyboardKey(0xE0)),   // Left Control
+        (.leftBack, .keyboardKey(0xE2)),    // Left Alt
+        (.rightFront, .mouseButton(0x05)),  // Mouse 5
+        (.rightBack, .mouseButton(0x04)),   // Mouse 4
+    ]
+
+    @discardableResult
+    func applyModifierPreset() -> Int {
+        applySideButtons(Self.sideButtonModifierPreset, label: "modifier preset")
+    }
+
+    /// Shared writer for the three presets, so they cannot drift apart.
+    @discardableResult
+    private func applySideButtons(_ plan: [(slot: RazerButtonSlot, action: RazerButtonAction)],
+                                  label: String) -> Int {
+        guard let mouse = selectedMouse,
+              Self.mouseProductIDs.contains(mouse.pid) else { return 0 }
+        var accepted = 0
+        for entry in plan {
+            let packet = RazerPacket.setButtonAssignment(
+                slot: entry.slot,
+                action: entry.action,
+                transactionId: mouse.info.transactionId
+            )
+            if let response = mouse.hidDevice.sendPacket(packet), response.isSuccess {
+                accepted += 1
+                sideButtonAssignments[entry.slot.rawValue] = entry.action
+            }
+        }
+        print("[DeviceManager] \(label) accepted \(accepted)/\(plan.count)")
+        saveSideButtonAssignments(for: mouse.pid)
+        return accepted
+    }
+
+    private static func sideButtonKey(for productID: UInt16) -> String {
+        String(format: "SavedSideButtonAssignments.%04x", productID)
+    }
+
+    private func saveSideButtonAssignments(for productID: UInt16) {
+        let encoded = Dictionary(uniqueKeysWithValues:
+            sideButtonAssignments.map { (String($0.key), $0.value.descriptor) })
+        UserDefaults.standard.set(encoded, forKey: Self.sideButtonKey(for: productID))
+    }
+
+    func loadSideButtonAssignments(for productID: UInt16) {
+        guard let stored = UserDefaults.standard.dictionary(forKey: Self.sideButtonKey(for: productID)) as? [String: String]
+        else { sideButtonAssignments = [:]; return }
+        sideButtonAssignments = Dictionary(uniqueKeysWithValues: stored.compactMap {
+            guard let slot = UInt8($0.key), let action = RazerButtonAction(descriptor: $0.value)
+            else { return nil }
+            return (slot, action)
+        })
+    }
+
+    /// What the four buttons are set to at the factory.
+    ///
+    /// Both flanks ship identical -- rear is Mouse 4, forward is Mouse 5 --
+    /// which is why an untouched mouse looks to this app as though it has two
+    /// buttons rather than four. Restoring these puts the buttons back where
+    /// macOS handles them natively: browser back and forward work with nothing
+    /// running, at the cost of RazerControl no longer being able to see them.
+    static let sideButtonDefaults: [(slot: RazerButtonSlot, button: UInt8)] = [
+        (.leftBack, 0x04),
+        (.leftFront, 0x05),
+        (.rightBack, 0x04),
+        (.rightFront, 0x05),
+    ]
+
+    /// Puts the four side buttons back to their factory mouse-button actions.
+    ///
+    /// The inverse of `configureSideButtons()`. Worth having as one action
+    /// rather than leaving someone to reconstruct four assignments by hand,
+    /// and worth having at all because the configured state is the one this
+    /// app imposes -- undoing it should not be harder than doing it.
+    @discardableResult
+    func restoreSideButtonDefaults() -> Int {
+        applySideButtons(Self.sideButtonDefaults.map { ($0.slot, .mouseButton($0.button)) },
+                         label: "side-button restore")
+    }
+
     /// Writes `sideButtonPlan` to the selected mouse.
     ///
     /// Returns how many of the four the device acknowledged. The assignment is
@@ -267,21 +366,8 @@ class DeviceManager: ObservableObject {
     /// Synapse does -- so it is re-sent rather than assumed to persist.
     @discardableResult
     func configureSideButtons() -> Int {
-        guard let mouse = selectedMouse,
-              Self.mouseProductIDs.contains(mouse.pid) else { return 0 }
-        var accepted = 0
-        for entry in Self.sideButtonPlan {
-            let packet = RazerPacket.setButtonAssignment(
-                slot: entry.slot,
-                action: .keyboardKey(entry.usage),
-                transactionId: mouse.info.transactionId
-            )
-            if let response = mouse.hidDevice.sendPacket(packet), response.isSuccess {
-                accepted += 1
-            }
-        }
-        print("[DeviceManager] side-button configuration accepted \(accepted)/\(Self.sideButtonPlan.count)")
-        return accepted
+        applySideButtons(Self.sideButtonPlan.map { ($0.slot, .keyboardKey($0.usage)) },
+                         label: "side-button configuration")
     }
 
     /// Routes a captured event to the bindings of the device that produced it.
@@ -304,6 +390,13 @@ class DeviceManager: ObservableObject {
             // defaults and reports as mouse buttons on the pointer interface,
             // which is deliberately not seized -- taking it would put cursor
             // movement itself behind this daemon.
+            // The artwork lights from this set regardless of device kind, so a
+            // mouse press has to land in it too. Without this the mouse tab
+            // draws hotspots that can never illuminate, which reads as the
+            // feature being broken rather than absent.
+            if isPressed { pressedKeyboardUsages.insert(usage) }
+            else { pressedKeyboardUsages.remove(usage) }
+
             guard let button = Self.viperUsageToButton[usage] else {
                 print(String(format: "[DeviceManager] unmapped mouse usage 0x%02X", Int(usage)))
                 return

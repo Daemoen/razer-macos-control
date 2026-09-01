@@ -145,6 +145,50 @@ struct MouseView: View {
                         }
                         .buttonStyle(.plain)
 
+                        Button {
+                            let accepted = deviceManager.applyModifierPreset()
+                            sideButtonStatus = accepted == DeviceManager.sideButtonModifierPreset.count
+                                ? "Left flank sends Control and Alt; right flank stays Mouse 4 and 5."
+                                : "\(accepted) of \(DeviceManager.sideButtonModifierPreset.count) applied."
+                        } label: {
+                            Text("Modifiers on left flank only")
+                                .font(RazerFont.caption(11))
+                                .foregroundColor(.razerTextSecondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color.razerSurfaceLight)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .strokeBorder(Color.razerBorder, lineWidth: 0.5)
+                                        )
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            let accepted = deviceManager.restoreSideButtonDefaults()
+                            sideButtonStatus = accepted == DeviceManager.sideButtonDefaults.count
+                                ? "Restored to Mouse 4 and 5. RazerControl can no longer see them."
+                                : "\(accepted) of \(DeviceManager.sideButtonDefaults.count) restored."
+                        } label: {
+                            Text("Restore factory buttons")
+                                .font(RazerFont.caption(11))
+                                .foregroundColor(.razerTextSecondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color.razerSurfaceLight)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .strokeBorder(Color.razerBorder, lineWidth: 0.5)
+                                        )
+                                )
+                        }
+                        .buttonStyle(.plain)
+
                         Text(sideButtonStatus ?? "Out of the factory the side buttons report as mouse buttons, which this app cannot see. This reassigns them to F13-F16.")
                             .font(RazerFont.caption(10))
                             .foregroundColor(.razerTextSecondary)
@@ -225,10 +269,19 @@ struct MouseView: View {
                     image: artwork,
                     map: hotspots,
                     // Only the left flank reports to us; the rest cannot light.
+                    // A button now answers to more than one usage: the
+                    // factory modifier it may still be sending, and the
+                    // function key we assign it. Picking the first match from
+                    // a dictionary would pick arbitrarily between them, so
+                    // prefer whichever one is actually held down.
                     hidCode: { id in
-                        DeviceManager.viperUsageToButton.first {
-                            $0.value == MouseButton(rawValue: id)?.mappingSource
-                        }?.key
+                        guard let source = MouseButton(rawValue: id)?.mappingSource
+                        else { return nil }
+                        let usages = DeviceManager.viperUsageToButton
+                            .filter { $0.value == source }
+                            .map(\.key)
+                        return usages.first { deviceManager.pressedKeyboardUsages.contains($0) }
+                            ?? usages.min()
                     },
                     isMapped: { id in
                         guard let button = MouseButton(rawValue: id) else { return false }
@@ -499,9 +552,22 @@ struct MouseView: View {
         .razerCard()
     }
 
+    /// What this row should say the button does.
+    ///
+    /// Three sources, most specific first: a mapping the user set inside this
+    /// app, then whatever the app last wrote to the device, then the factory
+    /// behaviour. The middle one matters because the presets change what the
+    /// hardware emits -- without it, pressing "Restore factory buttons" left
+    /// this panel claiming assignments that were no longer true.
     private func currentAssignment(for button: MouseButton) -> String {
-        deviceManager.mouseMappings[button.mappingSource]?.displayName
-            ?? button.defaultAction
+        if let mapped = deviceManager.mouseMappings[button.mappingSource]?.displayName {
+            return mapped
+        }
+        if let slot = button.assignmentSlot,
+           let applied = deviceManager.sideButtonAssignments[slot.rawValue] {
+            return applied.displayName
+        }
+        return button.defaultAction
     }
 
     // MARK: - DPI Panel
@@ -593,6 +659,18 @@ enum MouseButton: String, CaseIterable, Identifiable {
         case .sideLeftForward, .sideRightForward: return "Forward"
         case .sideLeftBack, .sideRightBack: return "Back"
         case .wheelClick: return "Middle Click"
+        }
+    }
+
+    /// The assignment slot this button occupies, for the four that have one.
+    /// The primaries and the wheel are not assignable through this command.
+    var assignmentSlot: RazerButtonSlot? {
+        switch self {
+        case .sideLeftBack: return .leftBack
+        case .sideLeftForward: return .leftFront
+        case .sideRightBack: return .rightBack
+        case .sideRightForward: return .rightFront
+        default: return nil
         }
     }
 
