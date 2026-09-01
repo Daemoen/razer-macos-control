@@ -31,8 +31,59 @@ enum ProtocolSelfTest {
         let bl = RazerLED.backlight.rawValue
         let std = RazerCommandClass.standard.rawValue
         let ext = RazerCommandClass.extended.rawValue
+        let dev = RazerCommandClass.device.rawValue
+        let pwr = RazerCommandClass.power.rawValue
+        let btn = RazerCommandClass.buttonAssignment.rawValue
 
         let cases: [Expectation] = [
+            // -- device + power: observed on the wire with USBPcap, not ported
+            // from OpenRazer, which carries no equivalent command. The captured
+            // checksums are reproduced here because the CRC covers bytes 2..87
+            // and so does not depend on the transaction id.
+            .init(name: "handedness right", packet: .setHandedness(.rightHanded),
+                  commandClass: dev, commandId: RazerCmd.handedness,
+                  dataSize: 0x01, args: [0: 0x00]),
+
+            .init(name: "handedness left", packet: .setHandedness(.leftHanded),
+                  commandClass: dev, commandId: RazerCmd.handedness,
+                  dataSize: 0x01, args: [0: 0x01]),
+
+            .init(name: "battery level", packet: .getBatteryLevel(),
+                  commandClass: pwr, commandId: RazerCmd.batteryLevel,
+                  dataSize: 0x02, args: [:]),
+
+            .init(name: "charging status", packet: .getChargingStatus(),
+                  commandClass: pwr, commandId: RazerCmd.chargingStatus,
+                  dataSize: 0x02, args: [:]),
+
+            // -- button assignment: class 0x02, command 0x0C -----------------
+            // Byte-for-byte reproductions of frames captured from Synapse and
+            // acknowledged by the device. The keyboard and mouse forms differ
+            // in length because the action is type-length-value.
+            .init(name: "assign left front to Left Ctrl",
+                  packet: .setButtonAssignment(slot: .leftFront, action: .keyboardKey(0xE0)),
+                  commandClass: btn, commandId: RazerCmd.buttonAssignment,
+                  dataSize: 0x0A,
+                  args: [0: 0x01, 1: 0x05, 2: 0x00, 3: 0x02, 4: 0x02, 5: 0x00, 6: 0xE0]),
+
+            .init(name: "assign right back to key 0",
+                  packet: .setButtonAssignment(slot: .rightBack, action: .keyboardKey(0x27)),
+                  commandClass: btn, commandId: RazerCmd.buttonAssignment,
+                  dataSize: 0x0A,
+                  args: [0: 0x01, 1: 0x06, 2: 0x00, 3: 0x02, 4: 0x02, 5: 0x00, 6: 0x27]),
+
+            .init(name: "assign right back to Mouse 4",
+                  packet: .setButtonAssignment(slot: .rightBack, action: .mouseButton(0x04)),
+                  commandClass: btn, commandId: RazerCmd.buttonAssignment,
+                  dataSize: 0x0A,
+                  args: [0: 0x01, 1: 0x06, 2: 0x00, 3: 0x01, 4: 0x01, 5: 0x04]),
+
+            .init(name: "assign right front to Mouse 5",
+                  packet: .setButtonAssignment(slot: .rightFront, action: .mouseButton(0x05)),
+                  commandClass: btn, commandId: RazerCmd.buttonAssignment,
+                  dataSize: 0x0A,
+                  args: [0: 0x01, 1: 0x07, 2: 0x00, 3: 0x01, 4: 0x01, 5: 0x05]),
+
             // -- standard matrix effects: class 0x03, command 0x0A ------------
             .init(name: "standard off", packet: .standardOff(),
                   commandClass: std, commandId: RazerCmd.stdEffect,

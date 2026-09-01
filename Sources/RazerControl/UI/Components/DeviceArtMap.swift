@@ -71,6 +71,18 @@ struct DeviceArtMap: Decodable {
     let imageSize: ImageSize?
     let controls: [Control]
 
+    /// Regions that light up, as distinct from regions you can click.
+    ///
+    /// On a keypad the two coincide -- every key is both a control and its own
+    /// lit zone -- so a map with no zones lights its controls. They do not
+    /// coincide on a mouse: its buttons are not illuminated and its illuminated
+    /// logo is not a button. Describing only controls would light the wrong
+    /// parts of the device.
+    let zones: [Control]?
+
+    /// What the lighting preview should illuminate.
+    var lightingRegions: [Control] { zones ?? controls }
+
     var aspect: Double {
         guard let imageSize, imageSize.height > 0 else { return 1 }
         return Double(imageSize.width) / Double(imageSize.height)

@@ -8,6 +8,12 @@ struct MouseView: View {
     @State private var hoveredButton: MouseButton? = nil
     @State private var dpiStage: Double = 1600
     @State private var showMapperSheet = false
+    @State private var batteryPercent: Int? = nil
+    @State private var isCharging: Bool? = nil
+    /// Last handedness we *set*. The device has no readback command that we
+    /// have observed, so this is what the app last asked for, not what the
+    /// mouse reports -- it can be wrong if the mode was changed elsewhere.
+    @State private var appliedHandedness: RazerHandedness? = nil
 
     private var isViperUltimate: Bool {
         deviceManager.selectedMouse?.pid == 0x007B
@@ -43,6 +49,7 @@ struct MouseView: View {
                         viperMouseVisualization
                         VStack(spacing: 14) {
                             buttonMappingsPanel
+                            devicePanel
                         }
                     }
                     .padding(.horizontal, 20)
@@ -68,6 +75,102 @@ struct MouseView: View {
         }
     }
 
+    // MARK: - Device Panel
+
+    /// Battery, charge state and handedness for the selected mouse.
+    ///
+    /// Handedness is gated on the Viper because it is the only ambidextrous
+    /// device in the database. There is no feature flag for ambidexterity yet,
+    /// and adding one means touching every device entry to answer a question
+    /// only one of them asks -- worth doing when a second such device appears,
+    /// not before.
+    @ViewBuilder
+    private var devicePanel: some View {
+        if let mouse = deviceManager.selectedMouse {
+            VStack(alignment: .leading, spacing: 12) {
+                RazerSectionHeader("Device", subtitle: mouse.name)
+
+                if mouse.info.features.contains(.wireless) {
+                    HStack {
+                        Text("Battery")
+                            .font(RazerFont.body(12))
+                            .foregroundColor(.razerTextSecondary)
+                        Spacer()
+                        Text(batteryLabel)
+                            .font(RazerFont.body(12))
+                            .foregroundColor(.razerTextPrimary)
+                    }
+                }
+
+                if isViperUltimate {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Handedness")
+                            .font(RazerFont.body(12))
+                            .foregroundColor(.razerTextSecondary)
+
+                        HStack(spacing: 6) {
+                            handednessButton(.rightHanded, "Right")
+                            handednessButton(.leftHanded, "Left")
+                        }
+
+                        Text("Side buttons are numbered from the thumb, so switching sides moves every side-button assignment to the opposite flank.")
+                            .font(RazerFont.caption(10))
+                            .foregroundColor(.razerTextSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .razerCard()
+            .onAppear { refreshDeviceStatus() }
+        }
+    }
+
+    private var batteryLabel: String {
+        guard let batteryPercent else { return "unknown" }
+        return isCharging == true ? "\(batteryPercent)% -- charging" : "\(batteryPercent)%"
+    }
+
+    private func handednessButton(_ mode: RazerHandedness, _ title: String) -> some View {
+        let isActive = appliedHandedness == mode
+        return Button {
+            applyHandedness(mode)
+        } label: {
+            Text(title)
+                .font(RazerFont.caption(11))
+                .foregroundColor(isActive ? .razerGreen : .razerTextSecondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isActive ? Color.razerGreenSubtle : Color.razerSurfaceLight)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(isActive ? Color.razerGreen.opacity(0.4) : Color.razerBorder,
+                                              lineWidth: 0.5)
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Reads battery and charge state. Both are queries; nothing is written.
+    private func refreshDeviceStatus() {
+        guard let mouse = deviceManager.selectedMouse,
+              mouse.info.features.contains(.wireless) else { return }
+        batteryPercent = mouse.hidDevice.getBatteryLevel(transactionId: mouse.info.transactionId)
+        isCharging = mouse.hidDevice.getChargingStatus(transactionId: mouse.info.transactionId)
+    }
+
+    /// Writes the handedness mode. Only reflected in the UI if the device
+    /// acknowledged it, so a failed write does not leave the panel claiming a
+    /// mode the mouse is not in.
+    private func applyHandedness(_ mode: RazerHandedness) {
+        guard let mouse = deviceManager.selectedMouse else { return }
+        if mouse.hidDevice.setHandedness(mode, transactionId: mouse.info.transactionId) {
+            appliedHandedness = mode
+        }
+    }
+
     // MARK: - Viper Ultimate Visualization
 
     /// Top-down Viper Ultimate with clickable button hotspots.
@@ -79,13 +182,51 @@ struct MouseView: View {
     /// so the two views cannot drift into drawing two different mice.
     @ViewBuilder
     private var viperMouseVisualization: some View {
-        if let pid = deviceManager.selectedMouse?.pid, DeviceArt.hasArt(for: pid) {
+        if let pid = deviceManager.selectedMouse?.pid,
+           let artwork = DeviceArt.image(for: pid),
+           let hotspots = DeviceArtMap.load(productID: pid,
+                                            bundledName: DeviceArt.bundledName(for: pid)) {
             VStack(spacing: 10) {
-                RazerSectionHeader("Viper Ultimate", subtitle: "Click a button to assign its action")
-                ZStack {
-                    DeviceArt.view(for: pid, maxWidth: 220, maxHeight: 300)
-                }
-                .frame(width: 250, height: 300)
+                RazerSectionHeader(deviceManager.selectedMouse?.name ?? "Mouse",
+                                   subtitle: "Click a button to assign its action")
+                DeviceArtView(
+                    image: artwork,
+                    map: hotspots,
+                    // Only the left flank reports to us; the rest cannot light.
+                    hidCode: { id in
+                        DeviceManager.viperUsageToButton.first {
+                            $0.value == MouseButton(rawValue: id)?.mappingSource
+                        }?.key
+                    },
+                    isMapped: { id in
+                        guard let button = MouseButton(rawValue: id) else { return false }
+                        return deviceManager.mouseMappings[button.mappingSource] != nil
+                    },
+                    // Unlettered, for the same reason the keypad's thumb
+                    // controls are: nothing is printed on the hardware. The
+                    // side buttons are also far too slim to letter -- "L Fwd"
+                    // truncates to "L F..." -- and the panel beside the artwork
+                    // already names every button and its binding. The artwork
+                    // locates a control and shows it being pressed; the panel
+                    // says what it is.
+                    label: { _ in "" },
+                    assignment: { _ in "" },
+                    pressed: deviceManager.pressedKeyboardUsages,
+                    onSelect: { id in
+                        guard let button = MouseButton(rawValue: id) else { return }
+                        selectedButton = button
+                        showMapperSheet = true
+                    }
+                )
+                .frame(width: 300, height: 470)
+            }
+            .razerCard()
+        } else if let pid = deviceManager.selectedMouse?.pid, DeviceArt.hasArt(for: pid) {
+            VStack(spacing: 10) {
+                RazerSectionHeader(deviceManager.selectedMouse?.name ?? "Mouse",
+                                   subtitle: "Click a button to assign its action")
+                DeviceArt.view(for: pid, maxWidth: 220, maxHeight: 300)
+                    .frame(width: 250, height: 300)
             }
             .razerCard()
         } else {

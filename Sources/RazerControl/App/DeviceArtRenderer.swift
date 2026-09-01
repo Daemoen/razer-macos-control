@@ -81,6 +81,12 @@ enum DeviceArtRenderer {
                   build: { AnyView(LightingView().environmentObject($0)) }),
             .init(file: "mouse-viper-config", width: 1080, height: 720, pid: 0x007B,
                   build: { AnyView(MouseView().environmentObject($0)) }),
+            .init(file: "mouse-viper-pressed", width: 1080, height: 720, pid: 0x007B,
+                  build: { manager in
+                      // Left side, forward -- the usage it actually reports.
+                      manager.pressedKeyboardUsages = [0xE0]
+                      return AnyView(MouseView().environmentObject(manager))
+                  }),
             .init(file: "lighting-viper", width: 1080, height: 720, pid: 0x007B,
                   build: { AnyView(LightingView().environmentObject($0)) }),
             .init(file: "lighting-dock", width: 1080, height: 720, pid: 0x007E,

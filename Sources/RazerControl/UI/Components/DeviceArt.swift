@@ -19,8 +19,8 @@ enum DeviceArt {
         0x022B: "0208",             // Tartarus V2 -- clean-room schematic + hotspot map
         0x0208: "0208",             // Tartarus V2 (alternate identifier)
         0x0244: "0208",             // Tartarus Pro -- same shell
-        0x007B: "viper-ultimate",   // Viper Ultimate (wireless)
-        0x007C: "viper-ultimate",   // Viper Ultimate (wired)
+        0x007B: "007b",             // Viper Ultimate -- clean-room schematic + hotspot map
+        0x007C: "007b",             // Viper Ultimate (wired)
     ]
 
     /// Cached because SwiftUI rebuilds these views constantly and decoding a

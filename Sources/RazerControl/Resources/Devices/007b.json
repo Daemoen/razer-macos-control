@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "productId": "007b",
+  "device": "Viper Ultimate (wireless)",
+  "image": "007b.png",
+  "imageSize": {
+    "width": 1040,
+    "height": 1800
+  },
+  "controls": [
+    {
+      "id": "leftClick",
+      "shape": "rect",
+      "x": 0.038462,
+      "y": 0.024444,
+      "w": 0.386538,
+      "h": 0.353333
+    },
+    {
+      "id": "rightClick",
+      "shape": "rect",
+      "x": 0.575,
+      "y": 0.024444,
+      "w": 0.386538,
+      "h": 0.353333
+    },
+    {
+      "id": "wheelClick",
+      "shape": "rect",
+      "x": 0.452885,
+      "y": 0.080556,
+      "w": 0.094231,
+      "h": 0.162222
+    },
+    {
+      "id": "sideLeftForward",
+      "shape": "rect",
+      "x": 0.027885,
+      "y": 0.381667,
+      "w": 0.081731,
+      "h": 0.084444
+    },
+    {
+      "id": "sideLeftBack",
+      "shape": "rect",
+      "x": 0.042308,
+      "y": 0.471111,
+      "w": 0.089423,
+      "h": 0.084444
+    },
+    {
+      "id": "sideRightForward",
+      "shape": "rect",
+      "x": 0.890385,
+      "y": 0.381667,
+      "w": 0.081731,
+      "h": 0.084444
+    },
+    {
+      "id": "sideRightBack",
+      "shape": "rect",
+      "x": 0.868269,
+      "y": 0.471111,
+      "w": 0.089423,
+      "h": 0.084444
+    }
+  ],
+  "zones": [
+    {
+      "id": "logo",
+      "shape": "rect",
+      "x": 0.3665,
+      "y": 0.5607,
+      "w": 0.3006,
+      "h": 0.1048
+    }
+  ]
+}

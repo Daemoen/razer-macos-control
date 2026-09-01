@@ -151,8 +151,7 @@ struct LightingView: View {
     /// Portrait keypad artwork needs the room; a mouse or headset does not.
     private var previewHeight: CGFloat {
         guard let pid = deviceManager.selectedDevice?.pid,
-              DeviceArt.hasArt(for: pid),
-              deviceManager.selectedDevice?.type == .keyboard else { return 180 }
+              DeviceArt.hasArt(for: pid) else { return 180 }
         return 300
     }
 
@@ -270,7 +269,15 @@ struct LightingView: View {
 
     @ViewBuilder
     private var mousePreview: some View {
-        if let pid = deviceManager.selectedDevice?.pid, DeviceArt.hasArt(for: pid) {
+        if let pid = deviceManager.selectedDevice?.pid,
+           let artwork = DeviceArt.image(for: pid),
+           let hotspots = DeviceArtMap.load(productID: pid,
+                                            bundledName: DeviceArt.bundledName(for: pid)) {
+            DeviceArtLightingPreview(image: artwork,
+                                     map: hotspots,
+                                     colour: { u, v in keyColour(u: u, v: v) },
+                                     brightness: brightness)
+        } else if let pid = deviceManager.selectedDevice?.pid, DeviceArt.hasArt(for: pid) {
             DeviceArt.view(for: pid, maxWidth: 300, maxHeight: 150)
         } else {
             drawnMousePreview
@@ -602,27 +609,58 @@ struct LightingView: View {
 
     // MARK: - Zone Selector
 
+    /// The zones this device actually has.
+    ///
+    /// The panel used to offer the same four to everything, so a Viper whose
+    /// only lit region is its logo was given Keys and Underglow buttons
+    /// addressing LEDs it does not contain. Where a device ships an artwork
+    /// map, its declared zones are the authority -- they were measured off the
+    /// hardware when the artwork was drawn. A device with no map keeps the full
+    /// list, because nothing better is known about it and an empty selector is
+    /// worse than an over-broad one.
+    private var availableZones: [LightingZone] {
+        guard let pid = deviceManager.selectedDevice?.pid,
+              let map = DeviceArtMap.load(productID: pid,
+                                          bundledName: DeviceArt.bundledName(for: pid))
+        else { return LightingZone.allCases }
+
+        let declared = Set(map.lightingRegions.map(\.id))
+        let matched = LightingZone.allCases.filter { $0 != .all && declared.contains($0.rawValue) }
+        guard !matched.isEmpty else { return LightingZone.allCases }
+        // "All" only means something when there is more than one zone to be all of.
+        return matched.count > 1 ? [.all] + matched : matched
+    }
+
+    /// The selection, corrected for devices that do not have it.
+    ///
+    /// Resolved rather than stored: switching devices would otherwise leave a
+    /// stale selection pointing at a zone the new device lacks, and correcting
+    /// it on change means reconciling state across every device switch.
+    private var effectiveZone: LightingZone {
+        availableZones.contains(selectedZone) ? selectedZone : (availableZones.first ?? .all)
+    }
+
     private var zoneSelector: some View {
         VStack(alignment: .leading, spacing: 8) {
             RazerSectionHeader("Zone", subtitle: "Apply effect to specific areas")
 
             HStack(spacing: 6) {
-                ForEach(LightingZone.allCases) { zone in
+                ForEach(availableZones) { zone in
                     Button {
                         selectedZone = zone
                     } label: {
                         Text(zone.label)
                             .font(RazerFont.caption(11))
-                            .foregroundColor(selectedZone == zone ? .razerGreen : .razerTextSecondary)
+                            .foregroundColor(effectiveZone == zone ? .razerGreen : .razerTextSecondary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
-                                    .fill(selectedZone == zone ? Color.razerGreenSubtle : Color.razerSurfaceLight)
+                                    .fill(effectiveZone == zone ? Color.razerGreenSubtle : Color.razerSurfaceLight)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 6)
                                             .strokeBorder(
-                                                selectedZone == zone ? Color.razerGreen.opacity(0.4) : Color.razerBorder,
+                                                effectiveZone == zone ? Color.razerGreen.opacity(0.4) : Color.razerBorder,
                                                 lineWidth: 0.5
                                             )
                                     )

@@ -325,6 +325,40 @@ final class RazerHIDDevice {
         return sendPacket(packet) != nil
     }
 
+    // MARK: Handedness and Power
+
+    /// Set which flank the thumb rests on.
+    ///
+    /// Side buttons are addressed by slot, and slots are numbered from the
+    /// thumb, so this also moves every side-button assignment to the opposite
+    /// flank. Anything the app has bound to a physical button is only correct
+    /// alongside the mode it was bound under.
+    func setHandedness(_ handedness: RazerHandedness, transactionId: UInt8) -> Bool {
+        let packet = RazerPacket.setHandedness(handedness, transactionId: transactionId)
+        return sendPacket(packet) != nil
+    }
+
+    /// Battery charge as a percentage, or nil if the device did not answer.
+    ///
+    /// The device reports 0-255 in `arguments[1]`; a Viper Ultimate answering
+    /// 0xEA is at roughly 92%.
+    func getBatteryLevel(transactionId: UInt8) -> Int? {
+        let packet = RazerPacket.getBatteryLevel(transactionId: transactionId)
+        guard let response = sendPacket(packet), response.isSuccess else { return nil }
+        return Int(response.data[9]) * 100 / 255
+    }
+
+    /// Whether the device reports itself as charging, or nil if it did not answer.
+    ///
+    /// `arguments[1]` reads 0x00 on a device that is not charging. The charging
+    /// value was never observed, so anything non-zero is treated as charging
+    /// rather than compared against a constant this code cannot vouch for.
+    func getChargingStatus(transactionId: UInt8) -> Bool? {
+        let packet = RazerPacket.getChargingStatus(transactionId: transactionId)
+        guard let response = sendPacket(packet), response.isSuccess else { return nil }
+        return response.data[9] != 0
+    }
+
     func getFirmwareVersion(transactionId: UInt8) -> String? {
         let packet = RazerPacket.getFirmwareVersion(transactionId: transactionId)
         guard let response = sendPacket(packet), response.isSuccess else { return nil }

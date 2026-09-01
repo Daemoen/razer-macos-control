@@ -24,6 +24,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Darwin.exit(result.passed ? EXIT_SUCCESS : EXIT_FAILURE)
         }
 
+        if let flagIndex = CommandLine.arguments.firstIndex(of: "--assign-button") {
+            // Unlike the other flags this one writes to the device. Kept
+            // separate so nothing that claims to be a self-test transmits.
+            let rest = Array(CommandLine.arguments.dropFirst(flagIndex + 1))
+            let result = ButtonAssignmentProbe.run(rest)
+            FileHandle.standardOutput.write(Data((result.report + "\n").utf8))
+            Darwin.exit(result.passed ? EXIT_SUCCESS : EXIT_FAILURE)
+        }
+
         if CommandLine.arguments.contains("--native-input-self-test") {
             DispatchQueue.global(qos: .userInitiated).async {
                 let result = NativeInputSelfTest.run()

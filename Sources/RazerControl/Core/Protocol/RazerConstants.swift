@@ -33,8 +33,10 @@ enum RazerStatus: UInt8 {
 // MARK: - Command Classes
 
 enum RazerCommandClass: UInt8 {
-    case device = 0x00          // Device info, driver mode
+    case device = 0x00          // Device info, driver mode, handedness
     case standard = 0x03        // Standard lighting effects + per-key matrix
+    case buttonAssignment = 0x02 // Per-button action assignment
+    case power = 0x07           // Battery level, charging status
     case extended = 0x0F        // Extended lighting protocol (newer devices)
 }
 
@@ -43,8 +45,16 @@ enum RazerCommandClass: UInt8 {
 enum RazerCmd {
     // Device class (0x00)
     static let deviceMode: UInt8 = 0x04
+    static let handedness: UInt8 = 0x33
     static let firmwareVersion: UInt8 = 0x81
     static let serialNumber: UInt8 = 0x82
+
+    // Button assignment class (0x02)
+    static let buttonAssignment: UInt8 = 0x0C
+
+    // Power class (0x07)
+    static let batteryLevel: UInt8 = 0x80
+    static let chargingStatus: UInt8 = 0x84
 
     // Standard class (0x03)
     static let stdBrightness: UInt8 = 0x01
@@ -108,6 +118,57 @@ enum RazerLEDStorage: UInt8 {
 enum RazerDeviceMode: UInt8 {
     case normal = 0x00
     case driver = 0x03   // Required for macro keys to emit keycodes
+}
+
+// MARK: - Handedness (ambidextrous mice)
+
+/// Which flank the thumb rests on.
+///
+/// This is not cosmetic. The side buttons are addressed by *slot*, and the
+/// slots are numbered relative to the thumb -- slot 0 is the rear button on the
+/// thumb flank. Changing the mode moves every side-button assignment to the
+/// opposite flank without altering the assignment itself, so a stored button
+/// mapping only means anything alongside the mode it was made under.
+enum RazerHandedness: UInt8 {
+    case rightHanded = 0x00
+    case leftHanded = 0x01
+}
+
+// MARK: - Button Assignment (class 0x02, command 0x0C)
+
+/// Which physical side button an assignment addresses.
+///
+/// These are absolute hardware positions, not thumb-relative slots. Synapse
+/// renumbers what it *displays* when handedness changes, but the wire always
+/// addresses the same physical button, so an assignment does not have to be
+/// re-derived when the mode is switched.
+enum RazerButtonSlot: UInt8 {
+    case leftBack = 0x04
+    case leftFront = 0x05
+    case rightBack = 0x06
+    case rightFront = 0x07
+}
+
+/// What a button does, as the device models it.
+///
+/// The wire encodes this as type-length-value, which is why the two cases are
+/// different lengths. The type corresponds to the category Synapse asks for
+/// first -- "Mouse Function", "Keyboard Function" and so on. Only the keyboard
+/// case is reachable from macOS: a mouse-function assignment reports on the
+/// pointer interface, which the input daemon deliberately never seizes, so a
+/// button assigned that way cannot be observed at all.
+enum RazerButtonAction {
+    case mouseButton(UInt8)
+    case keyboardKey(UInt8)
+
+    var payload: [UInt8] {
+        switch self {
+        case .mouseButton(let button):
+            return [0x01, 0x01, button]
+        case .keyboardKey(let usage):
+            return [0x02, 0x02, 0x00, usage]
+        }
+    }
 }
 
 // MARK: - Transaction IDs (varies per device family)

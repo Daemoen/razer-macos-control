@@ -162,6 +162,99 @@ extension RazerPacket {
         )
     }
 
+    // MARK: Handedness (ambidextrous mice)
+
+    /// Set which flank the thumb rests on.
+    ///
+    /// Observed directly on a Viper Ultimate (0x007B) by capturing Synapse with
+    /// USBPcap. OpenRazer carries no equivalent command, so this builder is
+    /// derived from the wire rather than ported from the reference -- the bytes
+    /// below are what the device was seen to accept, seven times, alternating.
+    ///
+    /// The CRC is independent of the transaction id (the checksum covers bytes
+    /// 2 through 87), so the captured checksums pin these packets exactly:
+    /// 0x32 for right-handed, 0x33 for left-handed.
+    static func setHandedness(
+        _ handedness: RazerHandedness,
+        transactionId: UInt8 = RazerTransactionID.mouse.rawValue
+    ) -> RazerPacket {
+        RazerPacket(
+            transactionId: transactionId,
+            commandClass: .device,
+            commandId: RazerCmd.handedness,
+            args: [handedness.rawValue],
+            dataSize: 0x01
+        )
+    }
+
+    // MARK: Power (class 0x07)
+
+    /// Request the battery charge level.
+    ///
+    /// Declares a two-byte payload while populating none -- the same
+    /// declared-versus-populated split the extended effects have, and the reason
+    /// `dataSize` is passed explicitly rather than inferred from `args`.
+    /// The reply carries the level in `arguments[1]` as 0-255; a Viper Ultimate
+    /// answering 0xEA is at roughly 92%.
+    static func getBatteryLevel(
+        transactionId: UInt8 = RazerTransactionID.mouse.rawValue
+    ) -> RazerPacket {
+        RazerPacket(
+            transactionId: transactionId,
+            commandClass: .power,
+            commandId: RazerCmd.batteryLevel,
+            args: [],
+            dataSize: 0x02
+        )
+    }
+
+    /// Request whether the device is currently charging.
+    ///
+    /// Same shape as the battery-level request. The reply\'s `arguments[1]` was
+    /// observed as 0x00 on a device that was not charging. The charging value
+    /// has not been observed, so nothing here asserts what it is.
+    static func getChargingStatus(
+        transactionId: UInt8 = RazerTransactionID.mouse.rawValue
+    ) -> RazerPacket {
+        RazerPacket(
+            transactionId: transactionId,
+            commandClass: .power,
+            commandId: RazerCmd.chargingStatus,
+            args: [],
+            dataSize: 0x02
+        )
+    }
+
+    // MARK: Button Assignment (class 0x02, command 0x0C)
+
+    /// Assign a physical side button.
+    ///
+    /// Observed on a Viper Ultimate by capturing Synapse with USBPcap;
+    /// OpenRazer has no button-assignment command, so this is derived from the
+    /// wire. Twenty-eight writes were captured across four buttons and two
+    /// action types, and every one was acknowledged with status 0x02.
+    ///
+    /// `profile` was 0x01 for every observed write, which was Synapse editing a
+    /// profile saved on the host rather than in the mouse. Whether another
+    /// value selects on-board storage is untested, so the default is the only
+    /// value known to work rather than the one we would like to be true. This
+    /// matters less than it sounds: the assignment can simply be re-sent
+    /// whenever the device connects, which is what Synapse itself does.
+    static func setButtonAssignment(
+        slot: RazerButtonSlot,
+        action: RazerButtonAction,
+        profile: UInt8 = 0x01,
+        transactionId: UInt8 = RazerTransactionID.mouse.rawValue
+    ) -> RazerPacket {
+        RazerPacket(
+            transactionId: transactionId,
+            commandClass: .buttonAssignment,
+            commandId: RazerCmd.buttonAssignment,
+            args: [profile, slot.rawValue, 0x00] + action.payload,
+            dataSize: 0x0A
+        )
+    }
+
     // MARK: Standard Effects (class 0x03)
 
     static func standardStatic(r: UInt8, g: UInt8, b: UInt8, transactionId: UInt8 = RazerTransactionID.standard.rawValue) -> RazerPacket {

@@ -212,7 +212,7 @@ struct DeviceArtLightingPreview: View {
                     .frame(width: fit.width, height: fit.height)
                     .offset(x: fit.x, y: fit.y)
 
-                ForEach(map.controls) { control in
+                ForEach(map.lightingRegions) { control in
                     if let bounds = control.bounds(aspect: map.aspect) {
                         let frame = CGRect(x: fit.x + bounds.minX * fit.width,
                                            y: fit.y + bounds.minY * fit.height,
@@ -227,7 +227,7 @@ struct DeviceArtLightingPreview: View {
                             // Additive, so it reads as light coming out of the
                             // key rather than paint laid over it.
                             .blendMode(.plusLighter)
-                            .blur(radius: max(0.5, min(frame.width, frame.height) * 0.10))
+                            .blur(radius: max(1.0, min(frame.width, frame.height) * 0.16))
                             .frame(width: frame.width, height: frame.height)
                             .offset(x: frame.minX, y: frame.minY)
                     }
