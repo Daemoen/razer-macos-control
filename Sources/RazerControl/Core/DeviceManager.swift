@@ -229,9 +229,60 @@ class DeviceManager: ObservableObject {
     /// button numbers MouseButton.mappingSource uses. Observed on hardware,
     /// not assumed: left-forward reports 0xE0 and left-back 0xE2.
     static let viperUsageToButton: [UInt8: Int] = [
+        // Factory-adjacent assignments, kept so a mouse we have never written
+        // to still works: these are what the device arrives emitting when its
+        // left flank has been set to modifiers by hand.
         0xE0: 1000,   // sideLeftForward
         0xE2: 1001,   // sideLeftBack
+        // What the four buttons emit once RC has configured them. Mapped to the
+        // same button numbers as above so a mapping saved before the device was
+        // configured keeps working afterwards.
+        0x69: 1000,   // sideLeftForward   F14
+        0x68: 1001,   // sideLeftBack      F13
+        0x6B: 4,      // sideRightForward  F16
+        0x6A: 3,      // sideRightBack     F15
     ]
+
+    /// What RC writes to make all four side buttons observable.
+    ///
+    /// A side button left at its factory setting is a mouse button, and a mouse
+    /// button reports on the pointer interface, which the input daemon never
+    /// seizes. Such a button is not merely unmapped -- it cannot be seen at all.
+    /// Reassigning the four to function keys moves them onto the keyboard
+    /// interface, where the daemon already listens.
+    ///
+    /// F13-F16 because nothing on a Mac keyboard produces them, so a button
+    /// that leaks past RC types nothing rather than something destructive.
+    static let sideButtonPlan: [(slot: RazerButtonSlot, usage: UInt8)] = [
+        (.leftBack, 0x68),     // F13
+        (.leftFront, 0x69),    // F14
+        (.rightBack, 0x6A),    // F15
+        (.rightFront, 0x6B),   // F16
+    ]
+
+    /// Writes `sideButtonPlan` to the selected mouse.
+    ///
+    /// Returns how many of the four the device acknowledged. The assignment is
+    /// pushed at runtime rather than stored in the mouse -- the same thing
+    /// Synapse does -- so it is re-sent rather than assumed to persist.
+    @discardableResult
+    func configureSideButtons() -> Int {
+        guard let mouse = selectedMouse,
+              Self.mouseProductIDs.contains(mouse.pid) else { return 0 }
+        var accepted = 0
+        for entry in Self.sideButtonPlan {
+            let packet = RazerPacket.setButtonAssignment(
+                slot: entry.slot,
+                action: .keyboardKey(entry.usage),
+                transactionId: mouse.info.transactionId
+            )
+            if let response = mouse.hidDevice.sendPacket(packet), response.isSuccess {
+                accepted += 1
+            }
+        }
+        print("[DeviceManager] side-button configuration accepted \(accepted)/\(Self.sideButtonPlan.count)")
+        return accepted
+    }
 
     /// Routes a captured event to the bindings of the device that produced it.
     ///

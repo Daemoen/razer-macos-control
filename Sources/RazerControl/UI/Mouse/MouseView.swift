@@ -14,6 +14,7 @@ struct MouseView: View {
     /// have observed, so this is what the app last asked for, not what the
     /// mouse reports -- it can be wrong if the mode was changed elsewhere.
     @State private var appliedHandedness: RazerHandedness? = nil
+    @State private var sideButtonStatus: String? = nil
 
     private var isViperUltimate: Bool {
         deviceManager.selectedMouse?.pid == 0x007B
@@ -114,6 +115,37 @@ struct MouseView: View {
                         }
 
                         Text("Side buttons are numbered from the thumb, so switching sides moves every side-button assignment to the opposite flank.")
+                            .font(RazerFont.caption(10))
+                            .foregroundColor(.razerTextSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Divider().overlay(Color.razerBorder)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Button {
+                            let accepted = deviceManager.configureSideButtons()
+                            sideButtonStatus = accepted == DeviceManager.sideButtonPlan.count
+                                ? "All four side buttons are now visible to RazerControl."
+                                : "\(accepted) of \(DeviceManager.sideButtonPlan.count) accepted."
+                        } label: {
+                            Text("Enable all four side buttons")
+                                .font(RazerFont.caption(11))
+                                .foregroundColor(.razerGreen)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color.razerGreenSubtle)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .strokeBorder(Color.razerGreen.opacity(0.4), lineWidth: 0.5)
+                                        )
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        Text(sideButtonStatus ?? "Out of the factory the side buttons report as mouse buttons, which this app cannot see. This reassigns them to F13-F16.")
                             .font(RazerFont.caption(10))
                             .foregroundColor(.razerTextSecondary)
                             .fixedSize(horizontal: false, vertical: true)
