@@ -26,20 +26,56 @@ enum DeviceArt {
     /// megapixel PNG on every layout pass is not free.
     private static var cache: [String: NSImage] = [:]
 
-    static func image(for productID: UInt16) -> Image? {
+    /// Where a user may drop their own artwork, outside the app bundle.
+    ///
+    /// Files here take precedence over anything shipped, and nothing here is
+    /// ever redistributed -- it is not in the repository and not in the bundle.
+    /// That separation is the point. This project is GPLv2, and the GPL requires
+    /// every part of the distributed work to be licensable under its terms, so
+    /// artwork whose rights we do not hold cannot ship with it at any price.
+    /// What someone installs on their own machine, from software they have
+    /// licensed, is a different question and their own to answer.
+    ///
+    /// Name each file for the device's product ID in lowercase hex:
+    ///     ~/Library/Application Support/RazerControl/DeviceArt/0207.png
+    ///
+    /// Transparent PNG works best against the dark UI; an opaque image renders
+    /// as a rectangle.
+    static var userArtDirectory: URL {
+        URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/RazerControl/DeviceArt",
+                                    isDirectory: true)
+    }
+
+    private static func userArtURL(for productID: UInt16) -> URL? {
+        let url = userArtDirectory
+            .appendingPathComponent(String(format: "%04x.png", productID))
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    private static func bundledArtURL(for productID: UInt16) -> URL? {
         guard let name = byProductID[productID] else { return nil }
-        if let cached = cache[name] { return Image(nsImage: cached) }
-        guard let url = Bundle.module.url(forResource: name,
-                                          withExtension: "png",
-                                          subdirectory: "Devices")
-                ?? Bundle.module.url(forResource: name, withExtension: "png"),
+        return Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "Devices")
+            ?? Bundle.module.url(forResource: name, withExtension: "png")
+    }
+
+    static func image(for productID: UInt16) -> Image? {
+        let key = String(format: "%04x", productID)
+        if let cached = cache[key] { return Image(nsImage: cached) }
+        // User-supplied art wins over anything shipped.
+        guard let url = userArtURL(for: productID) ?? bundledArtURL(for: productID),
               let loaded = NSImage(contentsOf: url) else { return nil }
-        cache[name] = loaded
+        cache[key] = loaded
         return Image(nsImage: loaded)
     }
 
     static func hasArt(for productID: UInt16) -> Bool {
-        byProductID[productID] != nil
+        userArtURL(for: productID) != nil || byProductID[productID] != nil
+    }
+
+    /// Clears the decode cache so a replaced file is picked up without a relaunch.
+    static func reloadUserArt() {
+        cache.removeAll()
     }
 
     /// Renders the photograph to fit a box without cropping or distorting it.
