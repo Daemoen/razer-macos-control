@@ -113,11 +113,8 @@ struct KeyboardView: View {
         self.lightingPreviewColor = lightingPreviewColor
     }
 
-    /// Devices drawn as a keypad rather than a full keyboard.
-    static let keypadProductIDs: Set<UInt16> = [0x0207, 0x022B, 0x0208, 0x0244]
-
     private var isOrbweaver: Bool {
-        (deviceManager.selectedKeyboard?.pid).map { Self.keypadProductIDs.contains($0) } ?? false
+        (deviceManager.selectedKeyboard?.pid).map { DeviceManager.keypadProductIDs.contains($0) } ?? false
     }
 
     private var isBlackWidowV3: Bool {
@@ -262,8 +259,7 @@ struct KeyboardView: View {
 
     // MARK: - Orbweaver Chroma
 
-    /// Factory keyboard usages emitted by the Orbweaver. Karabiner scopes the
-    /// resulting mappings to the Orbweaver's vendor/product ID.
+    /// Factory keyboard usages emitted by the Orbweaver, in physical row order.
     private var orbweaverKeypad: some View {
         let rows = Self.orbweaverRows
 

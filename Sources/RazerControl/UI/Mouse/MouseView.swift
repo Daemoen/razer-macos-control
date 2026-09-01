@@ -423,7 +423,7 @@ enum MouseButton: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Internal source used by KarabinerBackend. Values 1000/1001 represent
+    /// Internal binding key. Values 1000/1001 represent
     /// Viper side controls emitted through its keyboard interface.
     var mappingSource: Int {
         switch self {

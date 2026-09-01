@@ -45,7 +45,7 @@ final class RazerHIDDevice {
     }
 
     /// Metadata-only device used by passive IORegistry discovery. It has no
-    /// open HID interfaces, leaving input ownership entirely to Karabiner.
+    /// open HID interfaces, leaving input ownership entirely to the privileged input daemon.
     init(vendorId: UInt16, productId: UInt16, productName: String, serialNumber: String) {
         self.vendorId = vendorId
         self.productId = productId
@@ -102,7 +102,7 @@ final class RazerHIDDevice {
 
         // Devices discovered passively through IORegistry deliberately have no
         // retained IOHIDDevice interfaces. Open only a suitable feature-report
-        // interface for the duration of this command so Karabiner can continue
+        // interface for the duration of this command so the input daemon can continue
         // owning the input path.
         if interfaces.isEmpty, let response = sendUsingTemporaryFeatureInterface(packet) {
             return response

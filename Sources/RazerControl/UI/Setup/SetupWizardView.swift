@@ -216,7 +216,7 @@ struct SetupWizardView: View {
                 .font(RazerFont.title(20))
                 .foregroundColor(.razerTextPrimary)
 
-            Text("Keypad remapping runs natively through the RazerControl input daemon.\nKarabiner-Elements is still used for mouse buttons only.")
+            Text("Keypad and mouse remapping both run natively through the RazerControl\ninput daemon. No other software is required.")
                 .font(RazerFont.body(13))
                 .foregroundColor(.razerTextSecondary)
                 .multilineTextAlignment(.center)
@@ -231,9 +231,11 @@ struct SetupWizardView: View {
                 )
 
                 statusRow(
-                    "Mouse Buttons (Karabiner)",
-                    value: deviceManager.isKarabinerReady ? "Ready" : "Open Karabiner once",
-                    ok: deviceManager.isKarabinerReady
+                    "Mouse Buttons",
+                    value: deviceManager.isNativeInputActive
+                        ? "Native, left side buttons"
+                        : "Needs the input daemon",
+                    ok: deviceManager.isNativeInputActive
                 )
 
                 // RGB (no permission needed)
@@ -327,17 +329,20 @@ struct SetupWizardView: View {
                 statusRow("RGB Lighting", value: "Ready", ok: true)
                 statusRow("Keypad Mapping", value: deviceManager.isNativeInputActive ? "Native, active" : "Native, inactive",
                           ok: deviceManager.isNativeInputActive)
-                statusRow("Mouse Buttons", value: deviceManager.isKarabinerReady ? "Ready" : "Karabiner needed",
-                          ok: deviceManager.isKarabinerReady)
+                statusRow("Mouse Buttons",
+                          value: deviceManager.isNativeInputActive ? "Native, left side" : "Native, inactive",
+                          ok: deviceManager.isNativeInputActive)
             }
             .padding(.horizontal, 60)
 
-            if !deviceManager.isKarabinerReady {
-                Text("Mouse buttons only: open Karabiner-Elements once, complete its macOS setup, then return here. The keypad does not need it.")
-                    .font(RazerFont.caption(11))
-                    .foregroundColor(.razerTextTertiary)
-                    .multilineTextAlignment(.center)
-            }
+            // The right-hand side buttons are still on the mouse's factory
+            // configuration and report as pointer buttons, which this app does
+            // not capture. Said plainly here rather than left to be discovered
+            // by a binding that never fires.
+            Text("The mouse's left side buttons map natively. The right side buttons report on the pointer interface and cannot be captured yet.")
+                .font(RazerFont.caption(11))
+                .foregroundColor(.razerTextTertiary)
+                .multilineTextAlignment(.center)
 
             Spacer()
         }

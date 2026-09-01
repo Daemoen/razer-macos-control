@@ -127,7 +127,6 @@ class DeviceManager: ObservableObject {
     @Published var isRemappingActive = false
 
     let profileManager = ProfileManager()
-    private let karabinerBackend = KarabinerBackend()
     private let nativeRemapper = NativeHIDRemapper()
     private let privilegedInput = PrivilegedInputClient()
 
@@ -204,11 +203,8 @@ class DeviceManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$lastError)
 
-        privilegedInput.onKeyboardUsage = { [weak self] usage, isPressed in
-            guard let self else { return }
-            if isPressed { self.pressedKeyboardUsages.insert(usage) }
-            else { self.pressedKeyboardUsages.remove(usage) }
-            self.nativeRemapper.handle(source: usage, isPressed: isPressed)
+        privilegedInput.onKeyboardUsage = { [weak self] productID, usage, isPressed in
+            self?.handleCapturedInput(productID: productID, usage: usage, isPressed: isPressed)
         }
 
         privilegedInput.start()
@@ -221,6 +217,52 @@ class DeviceManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refreshMappingsForSelection() }
             .store(in: &cancellables)
+    }
+
+    /// Devices whose input drives the key mappings.
+    static let keypadProductIDs: Set<UInt16> = [0x0207, 0x022B, 0x0208, 0x0244]
+
+    /// Devices captured for their buttons rather than their keys.
+    static let mouseProductIDs: Set<UInt16> = [0x007B, 0x007C]
+
+    /// Viper side buttons that report on its keyboard interface, mapped to the
+    /// button numbers MouseButton.mappingSource uses. Observed on hardware,
+    /// not assumed: left-forward reports 0xE0 and left-back 0xE2.
+    static let viperUsageToButton: [UInt8: Int] = [
+        0xE0: 1000,   // sideLeftForward
+        0xE2: 1001,   // sideLeftBack
+    ]
+
+    /// Routes a captured event to the bindings of the device that produced it.
+    ///
+    /// Routing by usage alone would be wrong: a keypad's Left arrow and a mouse
+    /// side button can report the same number, and whichever set of bindings
+    /// happened to contain it would fire.
+    private func handleCapturedInput(productID: UInt16, usage: UInt8, isPressed: Bool) {
+        if Self.keypadProductIDs.contains(productID) {
+            if isPressed { pressedKeyboardUsages.insert(usage) }
+            else { pressedKeyboardUsages.remove(usage) }
+            nativeRemapper.handle(source: usage, isPressed: isPressed)
+            return
+        }
+
+        if Self.mouseProductIDs.contains(productID) {
+            // Only the left flank reaches us. Those two are configured in the
+            // mouse's onboard memory to emit modifier usages, so they arrive on
+            // its keyboard interface. The right flank is still on factory
+            // defaults and reports as mouse buttons on the pointer interface,
+            // which is deliberately not seized -- taking it would put cursor
+            // movement itself behind this daemon.
+            guard let button = Self.viperUsageToButton[usage] else {
+                print(String(format: "[DeviceManager] unmapped mouse usage 0x%02X", Int(usage)))
+                return
+            }
+            nativeRemapper.handleMouse(button: button, isPressed: isPressed)
+            return
+        }
+
+        print(String(format: "[DeviceManager] unrouted pid=0x%04X usage=0x%02X",
+                     Int(productID), Int(usage)))
     }
 
     // MARK: - Scanning
@@ -302,7 +344,6 @@ class DeviceManager: ObservableObject {
     }
 
     var hasDevices: Bool { !devices.isEmpty }
-    var isKarabinerReady: Bool { karabinerBackend.isConfigured }
 
     /// Installing a root daemon requires privilege the app does not and should
     /// not hold. Installation is an explicit administrator action performed by
@@ -350,39 +391,34 @@ class DeviceManager: ObservableObject {
         mouseMappings[button] = action
         print("[DeviceManager] Mouse button \(button) → \(action)")
         saveMappings()
-        syncKarabinerMappings()
+        syncMouseMappings()
     }
 
     func clearMouseMapping(button: Int) {
         mouseMappings.removeValue(forKey: button)
         saveMappings()
-        syncKarabinerMappings()
+        syncMouseMappings()
     }
 
     func startMouseRemapping() {
         guard !mouseMappings.isEmpty else { return }
-        syncKarabinerMappings()
+        syncMouseMappings()
     }
 
     func stopMouseRemapping() {
-        syncKarabinerMappings()
+        syncMouseMappings()
     }
 
-    private func syncKarabinerMappings() {
-        do {
-            try karabinerBackend.apply(
-                keyMappings: keyMappings,
-                mouseMappings: mouseMappings
-            )
-            isRemappingActive = !keyMappings.isEmpty
-            isMouseRemappingActive = !mouseMappings.isEmpty
-            lastError = nil
-        } catch {
-            isRemappingActive = false
-            isMouseRemappingActive = false
-            lastError = error.localizedDescription
-            print("[KarabinerBackend] \(error.localizedDescription)")
-        }
+    /// Applies mouse bindings through the same native path the keypad uses.
+    ///
+    /// This previously wrote a rule into Karabiner-Elements' configuration and
+    /// depended on it being installed to do anything at all. It was not, so
+    /// every mouse binding had silently stopped working.
+    private func syncMouseMappings() {
+        nativeRemapper.updateMouseMappings(mouseMappings)
+        isMouseRemappingActive = !mouseMappings.isEmpty
+        isRemappingActive = !keyMappings.isEmpty
+        lastError = nil
     }
 
     // MARK: - Persistence

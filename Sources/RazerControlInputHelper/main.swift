@@ -14,6 +14,11 @@ private let capturedProductIDs: [(id: Int, name: String)] = [
     (0x022B, "Tartarus V2"),
     (0x0208, "Tartarus V2 (alt)"),
     (0x0244, "Tartarus Pro"),
+    // The Viper reports its side buttons on a keyboard interface, separate from
+    // the pointer. Only the keyboard interface is matched below, so seizing it
+    // never touches pointer movement or the primary buttons.
+    (0x007B, "Viper Ultimate (wireless)"),
+    (0x007C, "Viper Ultimate (wired)"),
 ]
 private let hidUsagePageGenericDesktop = 0x01
 private let hidUsageKeyboard = 0x06
@@ -313,7 +318,7 @@ final class InputService {
         // that can never arrive.
         let matched = (IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>)?.count ?? 0
         guard matched > 0 else {
-            return ("No supported Razer keypad is connected.",
+            return ("No supported Razer device is connected.",
                     RazerInputErrorCode.deviceAbsent)
         }
 
@@ -350,7 +355,7 @@ final class InputService {
         }
 
         self.manager = manager
-        NSLog("[razer-inputd] Seized keypad (%d interface(s))", matched)
+        NSLog("[razer-inputd] Seized %d interface(s)", matched)
         return nil
     }
 
@@ -365,13 +370,25 @@ final class InputService {
         // carries a correct pressed/released state.
         guard IOHIDElementGetUsagePage(element) == hidUsagePageKeyboard,
               usage > 0x03, usage <= UInt32(UInt8.max) else { return }
+
+        // Which device produced this. Two devices can report the same usage --
+        // a keypad's Left arrow and a mouse side button both send 0x50 -- so
+        // the controller needs the source to route it to the right bindings.
+        var productID = 0
+        let device = IOHIDElementGetDevice(element)
+        if let property = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString),
+           let number = property as? NSNumber {
+            productID = number.intValue
+        }
         let isDown = IOHIDValueGetIntegerValue(value) != 0
         // Logged so an unknown control can be identified by pressing it. The
         // volume is one line per keypress, which the unified log absorbs
         // without trouble and which is the only way to learn what a control
         // actually reports rather than assuming.
-        NSLog("[razer-inputd] usage=0x%02X %@", usage, isDown ? "down" : "up")
-        service.send(.init(kind: .event, usage: Int(usage), pressed: isDown))
+        NSLog("[razer-inputd] pid=0x%04X usage=0x%02X %@", productID, usage,
+              isDown ? "down" : "up")
+        service.send(.init(kind: .event, usage: Int(usage), pressed: isDown,
+                           productId: productID))
     }
 
     // MARK: - Teardown

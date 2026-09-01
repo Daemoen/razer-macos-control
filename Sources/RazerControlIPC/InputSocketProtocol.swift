@@ -30,7 +30,7 @@ public let razerControllerAppPath = "/Applications/RazerControl.app"
 public let razerControllerBundleIdentifier = "com.razercontrol.app"
 
 /// Bumped only for wire-incompatible changes. Both sides refuse a mismatch.
-public let razerInputProtocolVersion = 2
+public let razerInputProtocolVersion = 3
 
 public struct RazerInputMessage: Codable, Sendable {
     public enum Kind: String, Codable, Sendable {
@@ -41,17 +41,24 @@ public struct RazerInputMessage: Codable, Sendable {
     public let version: Int
     public let usage: Int?
     public let pressed: Bool?
+    /// USB product ID of the device that produced this event.
+    ///
+    /// Without it the controller cannot tell a keypad's Left arrow from a
+    /// mouse side button reporting the same usage, and one device's bindings
+    /// fire on another's input. Usage alone is not an identity.
+    public let productId: Int?
     public let message: String?
     /// Set on `error` so the controller can branch on cause rather than parse prose.
     public let code: String?
 
     public init(kind: Kind, version: Int = razerInputProtocolVersion,
-                usage: Int? = nil, pressed: Bool? = nil,
+                usage: Int? = nil, pressed: Bool? = nil, productId: Int? = nil,
                 message: String? = nil, code: String? = nil) {
         self.kind = kind
         self.version = version
         self.usage = usage
         self.pressed = pressed
+        self.productId = productId
         self.message = message
         self.code = code
     }

@@ -9,6 +9,10 @@ final class NativeHIDRemapper {
     private var mappings: [UInt8: KeyAction] = [:]
     private var activeActions: [UInt8: KeyAction] = [:]
 
+    /// Mouse button bindings, keyed the way MouseButton.mappingSource keys them.
+    private var mouseMappings: [Int: KeyAction] = [:]
+    private var activeMouseActions: [Int: KeyAction] = [:]
+
     func updateMappings(_ mappings: [UInt8: KeyAction]) {
         self.mappings = mappings
     }
@@ -26,7 +30,29 @@ final class NativeHIDRemapper {
         }
     }
 
+    func updateMouseMappings(_ mappings: [Int: KeyAction]) {
+        self.mouseMappings = mappings
+    }
+
+    /// A mouse button that reached us as a seized HID event.
+    ///
+    /// Unlike a keypad key there is no factory action to replay: the button was
+    /// suppressed at the device, and an unbound one should simply do nothing
+    /// rather than emit whatever the mouse happened to be configured to send.
+    func handleMouse(button: Int, isPressed: Bool) {
+        if isPressed {
+            guard activeMouseActions[button] == nil,
+                  let action = mouseMappings[button] else { return }
+            activeMouseActions[button] = action
+            execute(action, isPressed: true)
+        } else if let action = activeMouseActions.removeValue(forKey: button) {
+            execute(action, isPressed: false)
+        }
+    }
+
     func releaseAll() {
+        for action in activeMouseActions.values { execute(action, isPressed: false) }
+        activeMouseActions.removeAll()
         for action in activeActions.values { execute(action, isPressed: false) }
         activeActions.removeAll()
     }

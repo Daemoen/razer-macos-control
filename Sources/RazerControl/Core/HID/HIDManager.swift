@@ -6,9 +6,9 @@ import Combine
 
 /// Passively discovers Razer USB devices through the IORegistry.
 ///
-/// This intentionally does not create or open an IOHIDManager. Karabiner's
-/// grabber must remain the sole owner of keyboard and pointing interfaces for
-/// device-specific remapping to work reliably.
+/// This intentionally does not create or open an IOHIDManager. The privileged
+/// input daemon is the sole owner of the interfaces it seizes; a second opener
+/// in this process would contend with it for the same device.
 @MainActor
 final class RazerHIDManager: ObservableObject {
     @Published var connectedDevices: [RazerHIDDevice] = []

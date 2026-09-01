@@ -27,7 +27,8 @@ final class PrivilegedInputClient: ObservableObject {
     @Published private(set) var state: State = .notInstalled
     @Published private(set) var error: String?
 
-    var onKeyboardUsage: ((UInt8, Bool) -> Void)?
+    /// (productID, usage, pressed)
+    var onKeyboardUsage: ((UInt16, UInt8, Bool) -> Void)?
 
     private let ioQueue = DispatchQueue(label: "com.razercontrol.input-client.socket")
     private var socketFD: Int32 = -1
@@ -164,7 +165,8 @@ final class PrivilegedInputClient: ObservableObject {
         case .event:
             guard let usage = message.usage.flatMap(UInt8.init(exactly:)),
                   let pressed = message.pressed else { return }
-            onKeyboardUsage?(usage, pressed)
+            let productID = message.productId.flatMap(UInt16.init(exactly:)) ?? 0
+            onKeyboardUsage?(productID, usage, pressed)
 
         case .error:
             isActive = false
