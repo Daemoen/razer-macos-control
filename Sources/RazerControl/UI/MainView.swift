@@ -22,6 +22,7 @@ enum AppTab: String, CaseIterable {
 struct MainView: View {
     @EnvironmentObject var deviceManager: DeviceManager
     @State private var selectedTab: AppTab = .keyboard
+    @State private var lastDeviceType: RazerDeviceType? = nil
 
     private var availableTabs: [AppTab] {
         AppTab.allCases.filter { tab in
@@ -58,15 +59,37 @@ struct MainView: View {
         }
         .background(Color.razerBg)
         .ignoresSafeArea()
-        .onChange(of: deviceManager.selectedDevice?.id) { _ in
-            guard !availableTabs.contains(selectedTab) else { return }
-            switch deviceManager.selectedDevice?.type {
-            case .mouse: selectedTab = .mouse
-            case .keyboard: selectedTab = .keyboard
-            case .accessory, .headset: selectedTab = .lighting
-            case nil: selectedTab = .settings
-            }
+        .onAppear { followDeviceType() }
+        .onChange(of: deviceManager.selectedDevice?.id) { _ in followDeviceType() }
+    }
+
+    /// The tab a device leads with.
+    private func naturalTab(for type: RazerDeviceType?) -> AppTab {
+        switch type {
+        case .mouse: return .mouse
+        case .keyboard: return .keyboard
+        case .accessory, .headset: return .lighting
+        case nil: return .settings
         }
+    }
+
+    /// Follow the selected device to its own page when the kind of device
+    /// changes.
+    ///
+    /// The previous rule only moved when the open tab became invalid, and
+    /// Lighting is valid for everything -- so once it was open, selecting a
+    /// mouse left you looking at the lighting page and wondering where the
+    /// mouse settings went. Switching between two devices of the same kind
+    /// still leaves you where you were, because moving someone off a tab they
+    /// chose is its own kind of wrong.
+    private func followDeviceType() {
+        let type = deviceManager.selectedDevice?.type
+        defer { lastDeviceType = type }
+        guard type != lastDeviceType else {
+            if !availableTabs.contains(selectedTab) { selectedTab = naturalTab(for: type) }
+            return
+        }
+        selectedTab = naturalTab(for: type)
     }
 
     // MARK: - Sidebar
