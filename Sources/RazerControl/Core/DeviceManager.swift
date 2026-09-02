@@ -155,6 +155,16 @@ class DeviceManager: ObservableObject {
     @Published var isMouseRemappingActive = false
 
     private let hidManager = RazerHIDManager()
+
+    /// Intercepts the buttons the input daemon cannot see.
+    ///
+    /// The daemon seizes keyboard collections only, deliberately -- taking the
+    /// pointer would put the cursor itself behind it. That leaves the primaries,
+    /// the wheel, and any side button still set to a mouse function with no
+    /// route into this app at all. A CoreGraphics tap sees them system-wide
+    /// without owning any device, which is what these bindings used to reach
+    /// before they were routed through Karabiner and then lost with it.
+    private let mouseMapper = MouseMapper()
     private let inputMonitor = RazerHIDInputMonitor()
     private var cancellables = Set<AnyCancellable>()
 
@@ -599,6 +609,17 @@ class DeviceManager: ObservableObject {
     private func syncMouseMappings() {
         nativeRemapper.updateMouseMappings(mouseMappings)
         isMouseRemappingActive = !mouseMappings.isEmpty
+
+        // Split by how the press actually arrives. Button numbers below 1000
+        // are CoreGraphics mouse buttons and reach us through the tap; 1000 and
+        // above are synthetic ids for side buttons emitting keyboard usages,
+        // which arrive through the daemon. A binding routed to the wrong one
+        // is stored, displayed, and never fires.
+        let pointerMappings = mouseMappings.filter { $0.key < 1000 }
+        mouseMapper.stop()
+        if !pointerMappings.isEmpty {
+            mouseMapper.start(with: pointerMappings)
+        }
         isRemappingActive = !keyMappings.isEmpty
         lastError = nil
     }
