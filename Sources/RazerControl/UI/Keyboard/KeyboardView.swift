@@ -89,6 +89,30 @@ struct KeyboardView: View {
     @EnvironmentObject var deviceManager: DeviceManager
     private let isLightingPreview: Bool
     private let lightingPreviewColor: Color
+
+    /// Colour for a key, given its centre in normalised keyboard coordinates.
+    ///
+    /// Without this the preview multiplied a single colour over the whole view,
+    /// which cannot show an effect travelling: a wave is a wave because adjacent
+    /// keys differ in phase, and one tint has no phase to differ. Devices with
+    /// artwork already lit per control; this gives the same to the ones drawn
+    /// from their key layout instead.
+    private let lightingColourAt: ((Double, Double) -> Color)?
+
+    /// Coordinate space the keys measure themselves against.
+    static let lightingSpace = "razer.keyboard.lighting"
+
+    /// The canvas the preview is laid out against, before scaling to fit.
+    ///
+    /// Hoisted off the layout body so the keys can normalise their own position
+    /// against it -- a key has to know the size of the board it sits on to say
+    /// where on that board it is.
+    private var designSize: CGSize {
+        let hasPhoto = (deviceManager.selectedKeyboard?.pid).map { DeviceArt.hasArt(for: $0) } ?? false
+        return isOrbweaver
+            ? (hasPhoto ? CGSize(width: 766, height: 1022) : CGSize(width: 512, height: 384))
+            : CGSize(width: 920, height: 235)
+    }
     @State private var selectedKey: KeyInfo? = nil
     @State private var hoveredKey: KeyInfo? = nil
     @State private var testInput = ""
@@ -108,9 +132,11 @@ struct KeyboardView: View {
     private let homeRowHID: [UInt8] = [0x04, 0x16, 0x07, 0x09, 0x0A, 0x0B, 0x0D, 0x0E, 0x0F, 0x33, 0x34]
     private let bottomRowHID: [UInt8] = [0x1D, 0x1B, 0x06, 0x19, 0x05, 0x11, 0x10, 0x36, 0x37, 0x38]
 
-    init(isLightingPreview: Bool = false, lightingPreviewColor: Color = .white) {
+    init(isLightingPreview: Bool = false, lightingPreviewColor: Color = .white,
+         lightingColourAt: ((Double, Double) -> Color)? = nil) {
         self.isLightingPreview = isLightingPreview
         self.lightingPreviewColor = lightingPreviewColor
+        self.lightingColourAt = lightingColourAt
     }
 
     private var isOrbweaver: Bool {
@@ -156,9 +182,6 @@ struct KeyboardView: View {
             // drawn content left the device floating small in the middle of the
             // card, so the preview is sized to the content box instead.
             let hasPhoto = (deviceManager.selectedKeyboard?.pid).map { DeviceArt.hasArt(for: $0) } ?? false
-            let designSize = isOrbweaver
-                ? (hasPhoto ? CGSize(width: 766, height: 1022) : CGSize(width: 512, height: 384))
-                : CGSize(width: 920, height: 235)
             let scale = min(
                 geometry.size.width / designSize.width,
                 geometry.size.height / designSize.height
@@ -188,7 +211,8 @@ struct KeyboardView: View {
                             .frame(width: designSize.width, height: designSize.height, alignment: .topLeading)
                     }
                 }
-                .colorMultiply(lightingPreviewColor)
+                .colorMultiply(lightingColourAt == nil ? lightingPreviewColor : .white)
+                .coordinateSpace(name: Self.lightingSpace)
                 .allowsHitTesting(false)
                 .scaleEffect(scale, anchor: .topLeading)
             }
@@ -960,7 +984,9 @@ private func orbweaverKeyRow(_ key: KeyInfo, caption: String) -> some View {
             isActive: info.isMacro ? macroKeysInitialized : true,
             isMacro: info.isMacro,
             onTap: { selectedKey = info; showMapperSheet = true },
-            onHover: { hoveredKey = $0 ? info : nil }
+            onHover: { hoveredKey = $0 ? info : nil },
+            lightingColourAt: lightingColourAt,
+            lightingCanvas: designSize
         )
     }
 
@@ -1174,6 +1200,8 @@ struct KeyCapView: View {
     let isMacro: Bool
     let onTap: () -> Void
     let onHover: (Bool) -> Void
+    var lightingColourAt: ((Double, Double) -> Color)? = nil
+    var lightingCanvas: CGSize = .zero
 
     private var bg: Color {
         if !isActive && isMacro { return Color.razerBg.opacity(0.3) }
@@ -1196,6 +1224,28 @@ struct KeyCapView: View {
         return Color.razerTextPrimary
     }
 
+    /// The key's own fill. In lighting preview it is read from the key's
+    /// position on the board, so an effect crosses the keys the way it does on
+    /// the hardware rather than washing the entire picture one colour.
+    @ViewBuilder
+    private var keyBackground: some View {
+        if let colourAt = lightingColourAt, lightingCanvas.width > 0, lightingCanvas.height > 0 {
+            GeometryReader { proxy in
+                let box = proxy.frame(in: .named(KeyboardView.lightingSpace))
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(colourAt(Double(box.midX / lightingCanvas.width),
+                                   Double(box.midY / lightingCanvas.height)))
+                    .overlay(RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(Color.black.opacity(0.35), lineWidth: 0.5))
+            }
+        } else {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(bg)
+                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(border, lineWidth: isSelected ? 1.5 : 0.5))
+                .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
+        }
+    }
+
     var body: some View {
         Button(action: onTap) {
             Text(key.label)
@@ -1205,12 +1255,7 @@ struct KeyCapView: View {
                     width: (size - 3) * key.width + max(0, (key.width - 1) * 2),
                     height: (size - 3) * key.height + max(0, (key.height - 1) * 2)
                 )
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(bg)
-                        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(border, lineWidth: isSelected ? 1.5 : 0.5))
-                        .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
-                )
+                .background(keyBackground)
                 .razerGlow(color: .razerGreen, radius: 5, isActive: isSelected || isPressed)
         }
         .buttonStyle(.plain)

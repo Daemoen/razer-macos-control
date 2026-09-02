@@ -148,11 +148,20 @@ struct LightingView: View {
         .razerCard()
     }
 
-    /// Portrait keypad artwork needs the room; a mouse or headset does not.
+    /// Sized by what is being drawn, not by whether artwork happens to exist.
+    ///
+    /// The rule used to be that a device with artwork got the room and everything
+    /// else got 180 points. That gave the most space to a portrait keypad and the
+    /// least to a full keyboard -- the widest thing this app draws -- because a
+    /// keyboard has no artwork file. It scaled itself down to fit and came out
+    /// unreadable, which is not a statement about the keyboard so much as about
+    /// the rule.
     private var previewHeight: CGFloat {
-        guard let pid = deviceManager.selectedDevice?.pid,
-              DeviceArt.hasArt(for: pid) else { return 180 }
-        return 300
+        switch deviceManager.selectedDevice?.type {
+        case .keyboard: return 300
+        case .mouse, .headset, .accessory: return 180
+        case nil: return 180
+        }
     }
 
     @ViewBuilder
@@ -188,7 +197,8 @@ struct LightingView: View {
         } else {
             KeyboardView(
                 isLightingPreview: true,
-                lightingPreviewColor: keyColor(row: 2, col: 7).opacity(brightness)
+                lightingPreviewColor: keyColor(row: 2, col: 7).opacity(brightness),
+                lightingColourAt: { u, v in keyColour(u: u, v: v).opacity(brightness) }
             )
         }
     }
