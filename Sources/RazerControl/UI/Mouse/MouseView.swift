@@ -123,73 +123,11 @@ struct MouseView: View {
                     Divider().overlay(Color.razerBorder)
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Button {
-                            let accepted = deviceManager.configureSideButtons()
-                            sideButtonStatus = accepted == DeviceManager.sideButtonPlan.count
-                                ? "All four side buttons are now visible to RazerControl."
-                                : "\(accepted) of \(DeviceManager.sideButtonPlan.count) accepted."
-                        } label: {
-                            Text("Enable all four side buttons")
-                                .font(RazerFont.caption(11))
-                                .foregroundColor(.razerGreen)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(Color.razerGreenSubtle)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 6)
-                                                .strokeBorder(Color.razerGreen.opacity(0.4), lineWidth: 0.5)
-                                        )
-                                )
+                        ForEach(Self.sideButtonPresets, id: \.title) { preset in
+                            presetButton(preset)
                         }
-                        .buttonStyle(.plain)
 
-                        Button {
-                            let accepted = deviceManager.applyModifierPreset()
-                            sideButtonStatus = accepted == DeviceManager.sideButtonModifierPreset.count
-                                ? "Left flank sends Control and Alt; right flank stays Mouse 4 and 5."
-                                : "\(accepted) of \(DeviceManager.sideButtonModifierPreset.count) applied."
-                        } label: {
-                            Text("Modifiers on left flank only")
-                                .font(RazerFont.caption(11))
-                                .foregroundColor(.razerTextSecondary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(Color.razerSurfaceLight)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 6)
-                                                .strokeBorder(Color.razerBorder, lineWidth: 0.5)
-                                        )
-                                )
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            let accepted = deviceManager.restoreSideButtonDefaults()
-                            sideButtonStatus = accepted == DeviceManager.sideButtonDefaults.count
-                                ? "Restored to Mouse 4 and 5. RazerControl can no longer see them."
-                                : "\(accepted) of \(DeviceManager.sideButtonDefaults.count) restored."
-                        } label: {
-                            Text("Restore factory buttons")
-                                .font(RazerFont.caption(11))
-                                .foregroundColor(.razerTextSecondary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(Color.razerSurfaceLight)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 6)
-                                                .strokeBorder(Color.razerBorder, lineWidth: 0.5)
-                                        )
-                                )
-                        }
-                        .buttonStyle(.plain)
-
-                        Text(sideButtonStatus ?? "Out of the factory the side buttons report as mouse buttons, which this app cannot see. This reassigns them to F13-F16.")
+                        Text(sideButtonStatus ?? "At the factory these report as mouse buttons, which this app cannot see at all.")
                             .font(RazerFont.caption(10))
                             .foregroundColor(.razerTextSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -199,6 +137,73 @@ struct MouseView: View {
             .razerCard()
             .onAppear { refreshDeviceStatus() }
         }
+    }
+
+    // MARK: - Side Button Presets
+
+    /// The arrangements the four side buttons can be put into.
+    ///
+    /// Named by what each one does rather than by which flank it lands on:
+    /// changing handedness moves every assignment to the opposite side, so a
+    /// label naming a side stops being true the moment the mode is switched.
+    private struct SideButtonPreset {
+        let title: String
+        let plan: [(slot: RazerButtonSlot, action: RazerButtonAction)]
+        let confirmation: String
+    }
+
+    private static var sideButtonPresets: [SideButtonPreset] {
+        [
+            .init(title: "All four visible to RazerControl",
+                  plan: DeviceManager.sideButtonPlanActions,
+                  confirmation: "All four now send F13 to F16."),
+            .init(title: "Two modifiers, two mouse buttons",
+                  plan: DeviceManager.sideButtonModifierPreset,
+                  confirmation: "Two send Control and Alt; the other two stay Mouse 4 and 5."),
+            .init(title: "Factory defaults",
+                  plan: DeviceManager.sideButtonDefaultActions,
+                  confirmation: "Back to Mouse 4 and 5. RazerControl can no longer see them."),
+        ]
+    }
+
+    /// Whether the device currently carries exactly this arrangement.
+    ///
+    /// Compared against what the app last wrote, which is the only record
+    /// there is -- so with nothing yet written, no preset shows as active
+    /// rather than one being guessed at.
+    private func isActive(_ preset: SideButtonPreset) -> Bool {
+        let applied = deviceManager.sideButtonAssignments
+        guard !applied.isEmpty else { return false }
+        return preset.plan.allSatisfy {
+            applied[$0.slot.rawValue]?.descriptor == $0.action.descriptor
+        }
+    }
+
+    private func presetButton(_ preset: SideButtonPreset) -> some View {
+        let active = isActive(preset)
+        return Button {
+            let accepted = deviceManager.applyPreset(preset.plan, label: preset.title)
+            sideButtonStatus = accepted == preset.plan.count
+                ? preset.confirmation
+                : "\(accepted) of \(preset.plan.count) applied."
+        } label: {
+            Text(preset.title)
+                .font(RazerFont.caption(11))
+                .foregroundColor(active ? .razerGreen : .razerTextSecondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(active ? Color.razerGreenSubtle : Color.razerSurfaceLight)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(active ? Color.razerGreen.opacity(0.4) : Color.razerBorder,
+                                              lineWidth: 0.5)
+                        )
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     private var batteryLabel: String {

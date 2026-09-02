@@ -285,6 +285,22 @@ class DeviceManager: ObservableObject {
         (.rightBack, .mouseButton(0x04)),   // Mouse 4
     ]
 
+    /// The three plans in one shape, so the UI can compare what is applied
+    /// against each of them without knowing how each was declared.
+    static var sideButtonPlanActions: [(slot: RazerButtonSlot, action: RazerButtonAction)] {
+        sideButtonPlan.map { ($0.slot, .keyboardKey($0.usage)) }
+    }
+
+    static var sideButtonDefaultActions: [(slot: RazerButtonSlot, action: RazerButtonAction)] {
+        sideButtonDefaults.map { ($0.slot, .mouseButton($0.button)) }
+    }
+
+    @discardableResult
+    func applyPreset(_ plan: [(slot: RazerButtonSlot, action: RazerButtonAction)],
+                     label: String) -> Int {
+        applySideButtons(plan, label: label)
+    }
+
     @discardableResult
     func applyModifierPreset() -> Int {
         applySideButtons(Self.sideButtonModifierPreset, label: "modifier preset")
