@@ -586,6 +586,24 @@ class DeviceManager: ObservableObject {
         syncMouseMappings()
     }
 
+    /// Button numbers belonging to the four side buttons, across both
+    /// transports: two CoreGraphics mouse buttons and two synthetic ids.
+    static let sideButtonMappingSources: [Int] = [3, 4, 1000, 1001]
+
+    /// Drops this app's own bindings for the side buttons.
+    ///
+    /// Restoring the factory assignment puts the buttons back to mouse
+    /// functions, but a binding stored against those button numbers still
+    /// fires through the event tap -- so the buttons kept doing what this app
+    /// had been told, which is not what "factory" means to anyone reading it.
+    func clearSideButtonMappings() {
+        for source in Self.sideButtonMappingSources {
+            mouseMappings.removeValue(forKey: source)
+        }
+        saveMappings()
+        syncMouseMappings()
+    }
+
     func clearMouseMapping(button: Int) {
         mouseMappings.removeValue(forKey: button)
         saveMappings()

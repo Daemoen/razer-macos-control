@@ -100,6 +100,19 @@ struct MouseView: View {
                         Text(batteryLabel)
                             .font(RazerFont.body(12))
                             .foregroundColor(.razerTextPrimary)
+
+                        // The panel reads once when it appears, which can land
+                        // before the device is ready to answer -- and a reading
+                        // that never retries reads as a broken feature.
+                        Button {
+                            refreshDeviceStatus()
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 10))
+                                .foregroundColor(.razerTextSecondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Read the battery again")
                     }
                 }
 
@@ -150,6 +163,10 @@ struct MouseView: View {
         let title: String
         let plan: [(slot: RazerButtonSlot, action: RazerButtonAction)]
         let confirmation: String
+        /// Whether this app's own bindings for the side buttons go too.
+        /// Only the factory arrangement does that -- the point of it is that
+        /// the buttons behave as they would with nothing installed.
+        var clearsMappings: Bool = false
     }
 
     private static var sideButtonPresets: [SideButtonPreset] {
@@ -162,7 +179,8 @@ struct MouseView: View {
                   confirmation: "Two send Control and Alt; the other two stay Mouse 4 and 5."),
             .init(title: "Factory defaults",
                   plan: DeviceManager.sideButtonDefaultActions,
-                  confirmation: "Back to Mouse 4 and 5. RazerControl can no longer see them."),
+                  confirmation: "Back to Mouse 4 and 5, with this app's bindings for them cleared.",
+                  clearsMappings: true),
         ]
     }
 
@@ -183,6 +201,7 @@ struct MouseView: View {
         let active = isActive(preset)
         return Button {
             let accepted = deviceManager.applyPreset(preset.plan, label: preset.title)
+            if preset.clearsMappings { deviceManager.clearSideButtonMappings() }
             sideButtonStatus = accepted == preset.plan.count
                 ? preset.confirmation
                 : "\(accepted) of \(preset.plan.count) applied."
