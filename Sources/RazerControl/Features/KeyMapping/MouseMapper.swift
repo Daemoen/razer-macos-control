@@ -105,21 +105,19 @@ final class MouseMapper: ObservableObject {
         // Get button number: 0=left, 1=right, 2=middle, 3=button4(back), 4=button5(forward)
         let buttonNumber = event.getIntegerValueField(.mouseEventButtonNumber)
 
-        NSLog("[MouseMapper] Event type=%d btn=%d mappings=%@", type.rawValue, buttonNumber,
-              mapper.mappings.keys.map { String($0) }.joined(separator: ","))
+        // Nothing is logged per event. macOS times out an event tap whose
+        // callback is slow and disables it, and every mouse movement and click
+        // in the system passes through here.
 
         guard let action = mapper.mappings[buttonNumber] else {
             return Unmanaged.passRetained(event) // no mapping, pass through
         }
-
-        NSLog("[MouseMapper] Matched btn=%d → action", buttonNumber)
 
         let isDown = (type == .otherMouseDown)
 
         switch action {
         case .keystroke(let key):
             if let cgKey = KeyCodeMap.hidToCG[key] {
-                NSLog("[MouseMapper] Injecting keystroke: cgKey=%d isDown=%d", cgKey, isDown ? 1 : 0)
                 if let keyEvent = CGEvent(keyboardEventSource: nil, virtualKey: cgKey, keyDown: isDown) {
                     keyEvent.post(tap: .cgSessionEventTap)
                 }
@@ -134,19 +132,24 @@ final class MouseMapper: ObservableObject {
                 if modifiers & 0x04 != 0 { flags.insert(.maskAlternate) }
                 if modifiers & 0x08 != 0 { flags.insert(.maskControl) }
 
-                NSLog("[MouseMapper] Injecting shortcut: cgKey=%d flags=%d", cgKey, flags.rawValue)
-
-                // Post to cgSessionEventTap (not cghidEventTap) to avoid
-                // re-entering our own event tap
-                if let down = CGEvent(keyboardEventSource: nil, virtualKey: cgKey, keyDown: true) {
-                    down.flags = flags
-                    down.post(tap: .cgSessionEventTap)
-                }
-                // Small delay between down and up
-                usleep(10_000)
-                if let up = CGEvent(keyboardEventSource: nil, virtualKey: cgKey, keyDown: false) {
-                    up.flags = flags
-                    up.post(tap: .cgSessionEventTap)
+                // Posted off the callback. This runs on the event tap's own
+                // thread, and it must not block: a callback that takes too long
+                // has its tap disabled by the system, which is indistinguishable
+                // from the button having stopped working. The gap between press
+                // and release belongs on another thread, not this one.
+                //
+                // Posted to cgSessionEventTap rather than cghidEventTap so the
+                // synthetic keystroke does not re-enter this tap.
+                DispatchQueue.global(qos: .userInteractive).async {
+                    if let down = CGEvent(keyboardEventSource: nil, virtualKey: cgKey, keyDown: true) {
+                        down.flags = flags
+                        down.post(tap: .cgSessionEventTap)
+                    }
+                    usleep(10_000)
+                    if let up = CGEvent(keyboardEventSource: nil, virtualKey: cgKey, keyDown: false) {
+                        up.flags = flags
+                        up.post(tap: .cgSessionEventTap)
+                    }
                 }
             }
             return nil
