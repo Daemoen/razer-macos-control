@@ -45,11 +45,12 @@ final class DeviceDatabase {
             RazerDeviceZone(led: .backlight, label: "Keys"),
             RazerDeviceZone(led: .logo, label: "Logo"),
         ]
-        // Devices whose only lit region is the key matrix. The BlackWidow V3's
-        // logo is a printed sticker and the Tartarus V2 has no logo at all, so
-        // offering either of them a Logo zone addresses an LED that is not
-        // there -- the effect appears to do nothing and the user is left
-        // wondering which part of it failed.
+        // Devices whose only lit region is the key matrix, confirmed against
+        // the hardware rather than assumed: the BlackWidow V3's logo is a
+        // printed sticker, and neither the Tartarus nor the Orbweaver has a
+        // logo at all. Offering any of them a Logo zone addresses an LED that
+        // is not there -- the effect appears to do nothing and there is no way
+        // to tell whether the zone, the effect or the device is at fault.
         let kbZonesKeysOnly = [
             RazerDeviceZone(led: .backlight, label: "Keys"),
         ]
@@ -226,7 +227,7 @@ final class DeviceDatabase {
             features: [.staticEffect, .breathingEffect, .waveEffect, .spectrumEffect,
                        .matrixRGB, .brightnessCtrl, .macroKeys],
             proto: .standard, txId: 0xFF,
-            zones: kbZones, matrix: (5, 22), macroKeys: 20
+            zones: kbZonesKeysOnly, matrix: (5, 22), macroKeys: 20
         ))
 
         // Tartarus V2 as it actually enumerates on hardware here. The 0x0208
@@ -244,7 +245,7 @@ final class DeviceDatabase {
             pid: 0x0208, name: "Tartarus V2", type: .keyboard,
             features: [.allEffects, .matrixRGB, .brightnessCtrl, .macroKeys],
             proto: .standard, txId: 0xFF,
-            zones: kbZones, matrix: (4, 6), macroKeys: 32
+            zones: kbZonesKeysOnly, matrix: (4, 6), macroKeys: 32
         ))
 
         // Tartarus Pro
@@ -252,7 +253,7 @@ final class DeviceDatabase {
             pid: 0x0244, name: "Tartarus Pro", type: .keyboard,
             features: [.allEffects, .matrixRGB, .brightnessCtrl, .macroKeys],
             proto: .extended, txId: 0x1F,
-            zones: kbZones, matrix: (4, 6), macroKeys: 32
+            zones: kbZonesKeysOnly, matrix: (4, 6), macroKeys: 32
         ))
 
         // Blade (laptop keyboards with Chroma)
