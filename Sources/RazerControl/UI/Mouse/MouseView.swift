@@ -540,7 +540,7 @@ struct MouseView: View {
                         // this app does with it. Without this line the presets
                         // change the device silently and the panel above them
                         // carries on describing the previous state.
-                        if let emits = emitsDescription(for: button) {
+                        if let emits = assignmentNote(for: button) {
                             Text(emits)
                                 .font(RazerFont.mono(9))
                                 .foregroundColor(.razerTextTertiary)
@@ -568,34 +568,43 @@ struct MouseView: View {
         .razerCard()
     }
 
-    /// What the hardware emits for this button, when the app has written it.
+    /// What this button actually does right now.
     ///
-    /// Deliberately separate from the mapping above: one is what the button
-    /// sends, the other is what this app does with it, and conflating them is
-    /// what made the presets look like they had done nothing.
-    private func emitsDescription(for button: MouseButton) -> String? {
+    /// A button set to a mouse function reports on the pointer interface,
+    /// which the input daemon never seizes -- this app cannot observe the
+    /// press, so any mapping saved against it does nothing. Showing that
+    /// mapping as the button's behaviour states something untrue, which is
+    /// worse than showing nothing. The hardware wins wherever the app is
+    /// blind to it.
+    private func currentAssignment(for button: MouseButton) -> String {
+        let mapping = deviceManager.mouseMappings[button.mappingSource]?.displayName
+        guard let slot = button.assignmentSlot,
+              let applied = deviceManager.sideButtonAssignments[slot.rawValue]
+        else { return mapping ?? button.defaultAction }
+
+        switch applied {
+        case .mouseButton:
+            return applied.displayName
+        case .keyboardKey:
+            return mapping ?? applied.displayName
+        }
+    }
+
+    /// A second line, only where one line would mislead.
+    private func assignmentNote(for button: MouseButton) -> String? {
         guard let slot = button.assignmentSlot,
               let applied = deviceManager.sideButtonAssignments[slot.rawValue]
         else { return nil }
-        return "sends \(applied.displayName)"
-    }
 
-    /// What this row should say the button does.
-    ///
-    /// Three sources, most specific first: a mapping the user set inside this
-    /// app, then whatever the app last wrote to the device, then the factory
-    /// behaviour. The middle one matters because the presets change what the
-    /// hardware emits -- without it, pressing "Restore factory buttons" left
-    /// this panel claiming assignments that were no longer true.
-    private func currentAssignment(for button: MouseButton) -> String {
-        if let mapped = deviceManager.mouseMappings[button.mappingSource]?.displayName {
-            return mapped
+        switch applied {
+        case .mouseButton:
+            guard let saved = deviceManager.mouseMappings[button.mappingSource]?.displayName
+            else { return nil }
+            return "\(saved) saved but inactive; this app cannot see mouse buttons"
+        case .keyboardKey:
+            guard deviceManager.mouseMappings[button.mappingSource] != nil else { return nil }
+            return "sends \(applied.displayName)"
         }
-        if let slot = button.assignmentSlot,
-           let applied = deviceManager.sideButtonAssignments[slot.rawValue] {
-            return applied.displayName
-        }
-        return button.defaultAction
     }
 
     // MARK: - DPI Panel
