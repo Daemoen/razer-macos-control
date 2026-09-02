@@ -79,7 +79,7 @@ final class DeviceDatabase {
             pid: 0x028C, name: "BlackWidow V4", type: .keyboard,
             features: [.keyboardFull, .macroKeys, .roller],
             proto: .extended, txId: 0x1F,
-            zones: kbZonesKeysOnly, matrix: (6, 22), macroKeys: 6, roller: true
+            zones: kbZones, matrix: (6, 22), macroKeys: 6, roller: true
         ))
 
         // BlackWidow V3
@@ -87,7 +87,7 @@ final class DeviceDatabase {
             pid: 0x0258, name: "BlackWidow V3", type: .keyboard,
             features: [.keyboardFull],
             proto: .extended, txId: 0x1F,
-            zones: kbZones, matrix: (6, 22)
+            zones: kbZonesKeysOnly, matrix: (6, 22)
         ))
 
         // BlackWidow V3 (wired)
@@ -96,7 +96,7 @@ final class DeviceDatabase {
             features: [.staticEffect, .breathingEffect, .waveEffect, .spectrumEffect,
                        .matrixRGB, .brightnessCtrl],
             proto: .extended, txId: 0x1F,
-            zones: kbZones, matrix: (6, 22)
+            zones: kbZonesKeysOnly, matrix: (6, 22)
         ))
 
         // BlackWidow V3 TKL
