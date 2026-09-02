@@ -45,6 +45,14 @@ final class DeviceDatabase {
             RazerDeviceZone(led: .backlight, label: "Keys"),
             RazerDeviceZone(led: .logo, label: "Logo"),
         ]
+        // Devices whose only lit region is the key matrix. The BlackWidow V3's
+        // logo is a printed sticker and the Tartarus V2 has no logo at all, so
+        // offering either of them a Logo zone addresses an LED that is not
+        // there -- the effect appears to do nothing and the user is left
+        // wondering which part of it failed.
+        let kbZonesKeysOnly = [
+            RazerDeviceZone(led: .backlight, label: "Keys"),
+        ]
         let kbZonesWithUnderglow = kbZones + [
             RazerDeviceZone(led: .underglow, label: "Underglow"),
         ]
@@ -71,7 +79,7 @@ final class DeviceDatabase {
             pid: 0x028C, name: "BlackWidow V4", type: .keyboard,
             features: [.keyboardFull, .macroKeys, .roller],
             proto: .extended, txId: 0x1F,
-            zones: kbZones, matrix: (6, 22), macroKeys: 6, roller: true
+            zones: kbZonesKeysOnly, matrix: (6, 22), macroKeys: 6, roller: true
         ))
 
         // BlackWidow V3
@@ -228,7 +236,7 @@ final class DeviceDatabase {
             features: [.staticEffect, .breathingEffect, .waveEffect, .spectrumEffect,
                        .matrixRGB, .brightnessCtrl, .macroKeys],
             proto: .extended, txId: 0x1F,
-            zones: kbZones, matrix: (4, 5), macroKeys: 20
+            zones: kbZonesKeysOnly, matrix: (4, 5), macroKeys: 20
         ))
 
         // Tartarus V2

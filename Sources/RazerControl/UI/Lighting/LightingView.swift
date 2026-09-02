@@ -618,15 +618,35 @@ struct LightingView: View {
     /// hardware when the artwork was drawn. A device with no map keeps the full
     /// list, because nothing better is known about it and an empty selector is
     /// worse than an over-broad one.
+    /// The zones the device database says this hardware actually has.
+    private var declaredZones: [LightingZone] {
+        guard let zones = deviceManager.selectedDevice?.info.zones, !zones.isEmpty
+        else { return LightingZone.allCases }
+        let mapped: [LightingZone] = zones.compactMap {
+            switch $0.led {
+            case .backlight: return .backlight
+            case .logo: return .logo
+            case .underglow: return .underglow
+            default: return nil
+            }
+        }
+        guard !mapped.isEmpty else { return LightingZone.allCases }
+        return mapped.count > 1 ? [.all] + mapped : mapped
+    }
+
     private var availableZones: [LightingZone] {
+        // The device database is the fallback, not the full list. A device with
+        // no artwork was previously offered every zone this app knows about,
+        // which is how a keyboard with one lit region ended up with buttons for
+        // a logo it does not have and an underglow it was never built with.
         guard let pid = deviceManager.selectedDevice?.pid,
               let map = DeviceArtMap.load(productID: pid,
                                           bundledName: DeviceArt.bundledName(for: pid))
-        else { return LightingZone.allCases }
+        else { return declaredZones }
 
         let declared = Set(map.lightingRegions.map(\.id))
         let matched = LightingZone.allCases.filter { $0 != .all && declared.contains($0.rawValue) }
-        guard !matched.isEmpty else { return LightingZone.allCases }
+        guard !matched.isEmpty else { return declaredZones }
         // "All" only means something when there is more than one zone to be all of.
         return matched.count > 1 ? [.all] + matched : matched
     }
