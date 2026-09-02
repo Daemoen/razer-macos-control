@@ -527,9 +527,20 @@ struct MouseView: View {
                         .foregroundColor(.razerTextPrimary)
                         .frame(width: 110, alignment: .leading)
 
-                    Text(currentAssignment(for: button))
-                        .font(RazerFont.mono(11))
-                        .foregroundColor(.razerTextSecondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(currentAssignment(for: button))
+                            .font(RazerFont.mono(11))
+                            .foregroundColor(.razerTextSecondary)
+                        // What the hardware is sending, separately from what
+                        // this app does with it. Without this line the presets
+                        // change the device silently and the panel above them
+                        // carries on describing the previous state.
+                        if let emits = emitsDescription(for: button) {
+                            Text(emits)
+                                .font(RazerFont.mono(9))
+                                .foregroundColor(.razerTextTertiary)
+                        }
+                    }
 
                     Spacer()
 
@@ -550,6 +561,18 @@ struct MouseView: View {
             }
         }
         .razerCard()
+    }
+
+    /// What the hardware emits for this button, when the app has written it.
+    ///
+    /// Deliberately separate from the mapping above: one is what the button
+    /// sends, the other is what this app does with it, and conflating them is
+    /// what made the presets look like they had done nothing.
+    private func emitsDescription(for button: MouseButton) -> String? {
+        guard let slot = button.assignmentSlot,
+              let applied = deviceManager.sideButtonAssignments[slot.rawValue]
+        else { return nil }
+        return "sends \(applied.displayName)"
     }
 
     /// What this row should say the button does.

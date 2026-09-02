@@ -139,13 +139,18 @@ struct DeviceArtView: View {
         // shape that produces. `position` places the view in the parent's
         // coordinate space, so what is drawn and what is clickable are the
         // same rectangle.
-        .position(x: frame.midX, y: frame.midY)
         .animation(.easeOut(duration: isPressed ? 0.04 : 0.16), value: isPressed)
+        // Hover and help attach *before* position. A positioned view reports
+        // itself as filling the whole parent for layout, so a hover modifier
+        // applied after it fires across the entire artwork rather than over one
+        // control -- with seven of them stacked, only the last one drawn ever
+        // saw the pointer, and every other hotspot appeared inert.
         .onHover { inside in
             if inside { hovered = control.id }
             else if hovered == control.id { hovered = nil }
         }
         .help("\(label(control.id)) — \(assignment(control.id))")
+        .position(x: frame.midX, y: frame.midY)
     }
 
     private func fillColour(pressed: Bool, hovered: Bool, mapped: Bool) -> Color {
