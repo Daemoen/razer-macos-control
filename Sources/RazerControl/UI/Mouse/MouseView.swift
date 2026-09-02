@@ -239,6 +239,10 @@ struct MouseView: View {
         guard let mouse = deviceManager.selectedMouse,
               mouse.info.features.contains(.wireless) else { return }
         batteryPercent = mouse.hidDevice.getBatteryLevel(transactionId: mouse.info.transactionId)
+        // Same reason the presets space their writes: a second command issued
+        // while the first is still crossing the radio link is dropped, which
+        // showed up as the battery reading being present or absent at random.
+        usleep(DeviceManager.interCommandDelay)
         isCharging = mouse.hidDevice.getChargingStatus(transactionId: mouse.info.transactionId)
     }
 

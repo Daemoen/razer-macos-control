@@ -141,6 +141,17 @@ class DeviceManager: ObservableObject {
     /// drops back to on-board state -- makes this stale, so it is presented as
     /// the last applied setting and never as an observed one.
     @Published var sideButtonAssignments: [UInt8: RazerButtonAction] = [:]
+
+    /// Which slots the device refused, so a failure can say what failed rather
+    /// than only how many did.
+    @Published var lastSideButtonFailure: String? = nil
+
+    /// Gap between consecutive commands to a wireless device, in microseconds.
+    ///
+    /// The dongle relays over the air and will not take a second command while
+    /// the first is outstanding. Sized generously: the cost is a fifth of a
+    /// second on a button press, and the alternative is a silent partial write.
+    static let interCommandDelay: UInt32 = 50_000
     @Published var isMouseRemappingActive = false
 
     private let hidManager = RazerHIDManager()
@@ -313,7 +324,15 @@ class DeviceManager: ObservableObject {
         guard let mouse = selectedMouse,
               Self.mouseProductIDs.contains(mouse.pid) else { return 0 }
         var accepted = 0
-        for entry in plan {
+        var failures: [String] = []
+        for (index, entry) in plan.enumerated() {
+            // The dongle relays each command over the air and will not accept a
+            // second one while the first is still in flight. A single command
+            // sent by hand always succeeded; two in a row were intermittent and
+            // four in a row failed outright, which is what an absent delay
+            // looks like rather than a malformed packet.
+            if index > 0 { usleep(Self.interCommandDelay) }
+
             let packet = RazerPacket.setButtonAssignment(
                 slot: entry.slot,
                 action: entry.action,
@@ -322,8 +341,11 @@ class DeviceManager: ObservableObject {
             if let response = mouse.hidDevice.sendPacket(packet), response.isSuccess {
                 accepted += 1
                 sideButtonAssignments[entry.slot.rawValue] = entry.action
+            } else {
+                failures.append(String(format: "slot %02X", Int(entry.slot.rawValue)))
             }
         }
+        lastSideButtonFailure = failures.isEmpty ? nil : failures.joined(separator: ", ")
         print("[DeviceManager] \(label) accepted \(accepted)/\(plan.count)")
         saveSideButtonAssignments(for: mouse.pid)
         return accepted
